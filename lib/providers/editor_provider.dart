@@ -50,11 +50,12 @@ class EditorState {
 class EditorNotifier extends StateNotifier<EditorState> {
   EditorNotifier() : super(const EditorState());
 
-  void loadPhoto(String assetId) {
+  void loadPhoto(String assetId, {EditSettings? restored}) {
+    final start = restored ?? EditSettings.defaults;
     state = EditorState(
       assetId: assetId,
-      current: EditSettings.defaults,
-      history: const [EditSettings.defaults],
+      current: start,
+      history: [start],
       historyIndex: 0,
     );
   }

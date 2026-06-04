@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/edit_settings.dart';
+import '../models/brush_mask.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -129,29 +130,81 @@ class DatabaseHelper {
         'vignette': s.vignette,
         'dehaze': s.dehaze,
         'noiseReduction': s.noiseReduction,
+        // HSL per channel
+        'hslRedHue': s.hslRedHue, 'hslRedSat': s.hslRedSat, 'hslRedLum': s.hslRedLum,
+        'hslOrangeHue': s.hslOrangeHue, 'hslOrangeSat': s.hslOrangeSat, 'hslOrangeLum': s.hslOrangeLum,
+        'hslYellowHue': s.hslYellowHue, 'hslYellowSat': s.hslYellowSat, 'hslYellowLum': s.hslYellowLum,
+        'hslGreenHue': s.hslGreenHue, 'hslGreenSat': s.hslGreenSat, 'hslGreenLum': s.hslGreenLum,
+        'hslBlueHue': s.hslBlueHue, 'hslBlueSat': s.hslBlueSat, 'hslBlueLum': s.hslBlueLum,
+        'hslPurpleHue': s.hslPurpleHue, 'hslPurpleSat': s.hslPurpleSat, 'hslPurpleLum': s.hslPurpleLum,
+        // Perspective / blur
+        'perspectiveVertical': s.perspectiveVertical,
+        'perspectiveHorizontal': s.perspectiveHorizontal,
+        'blurStrength': s.blurStrength,
+        // Brush masks
+        'healMask': s.healMask.dabs.map((d) => d.toMap()).toList(),
+        'focusMask': s.focusMask.dabs.map((d) => d.toMap()).toList(),
+        'selectiveMask': s.selectiveMask.dabs.map((d) => d.toMap()).toList(),
+        'selBrightness': s.selBrightness,
+        'selContrast': s.selContrast,
+        'selSaturation': s.selSaturation,
+        'selWarmth': s.selWarmth,
+        // Transform / crop / filter
         'rotation': s.rotation,
         'flipH': s.flipHorizontal,
         'flipV': s.flipVertical,
+        'crop': s.cropRect?.toMap(),
         'filter': s.activeFilter,
       };
 
+  // Lenient getters so older/partial rows still deserialize.
+  double _d(Map m, String k) => (m[k] as num?)?.toDouble() ?? 0.0;
+  BrushMask _mask(Map m, String k) {
+    final raw = m[k];
+    if (raw is! List) return const BrushMask();
+    return BrushMask(
+      dabs: raw
+          .map((e) => BrushDab.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+    );
+  }
+
   EditSettings _settingsFromMap(Map<String, dynamic> m) => EditSettings(
-        brightness: (m['brightness'] as num).toDouble(),
-        contrast: (m['contrast'] as num).toDouble(),
-        saturation: (m['saturation'] as num).toDouble(),
-        vibrance: (m['vibrance'] as num).toDouble(),
-        highlights: (m['highlights'] as num).toDouble(),
-        shadows: (m['shadows'] as num).toDouble(),
-        sharpness: (m['sharpness'] as num).toDouble(),
-        clarity: (m['clarity'] as num).toDouble(),
-        warmth: (m['warmth'] as num).toDouble(),
-        tint: (m['tint'] as num).toDouble(),
-        vignette: (m['vignette'] as num).toDouble(),
-        dehaze: (m['dehaze'] as num).toDouble(),
-        noiseReduction: (m['noiseReduction'] as num).toDouble(),
-        rotation: (m['rotation'] as num).toDouble(),
-        flipHorizontal: m['flipH'] as bool,
-        flipVertical: m['flipV'] as bool,
+        brightness: _d(m, 'brightness'),
+        contrast: _d(m, 'contrast'),
+        saturation: _d(m, 'saturation'),
+        vibrance: _d(m, 'vibrance'),
+        highlights: _d(m, 'highlights'),
+        shadows: _d(m, 'shadows'),
+        sharpness: _d(m, 'sharpness'),
+        clarity: _d(m, 'clarity'),
+        warmth: _d(m, 'warmth'),
+        tint: _d(m, 'tint'),
+        vignette: _d(m, 'vignette'),
+        dehaze: _d(m, 'dehaze'),
+        noiseReduction: _d(m, 'noiseReduction'),
+        hslRedHue: _d(m, 'hslRedHue'), hslRedSat: _d(m, 'hslRedSat'), hslRedLum: _d(m, 'hslRedLum'),
+        hslOrangeHue: _d(m, 'hslOrangeHue'), hslOrangeSat: _d(m, 'hslOrangeSat'), hslOrangeLum: _d(m, 'hslOrangeLum'),
+        hslYellowHue: _d(m, 'hslYellowHue'), hslYellowSat: _d(m, 'hslYellowSat'), hslYellowLum: _d(m, 'hslYellowLum'),
+        hslGreenHue: _d(m, 'hslGreenHue'), hslGreenSat: _d(m, 'hslGreenSat'), hslGreenLum: _d(m, 'hslGreenLum'),
+        hslBlueHue: _d(m, 'hslBlueHue'), hslBlueSat: _d(m, 'hslBlueSat'), hslBlueLum: _d(m, 'hslBlueLum'),
+        hslPurpleHue: _d(m, 'hslPurpleHue'), hslPurpleSat: _d(m, 'hslPurpleSat'), hslPurpleLum: _d(m, 'hslPurpleLum'),
+        perspectiveVertical: _d(m, 'perspectiveVertical'),
+        perspectiveHorizontal: _d(m, 'perspectiveHorizontal'),
+        blurStrength: _d(m, 'blurStrength'),
+        healMask: _mask(m, 'healMask'),
+        focusMask: _mask(m, 'focusMask'),
+        selectiveMask: _mask(m, 'selectiveMask'),
+        selBrightness: _d(m, 'selBrightness'),
+        selContrast: _d(m, 'selContrast'),
+        selSaturation: _d(m, 'selSaturation'),
+        selWarmth: _d(m, 'selWarmth'),
+        rotation: _d(m, 'rotation'),
+        flipHorizontal: m['flipH'] as bool? ?? false,
+        flipVertical: m['flipV'] as bool? ?? false,
+        cropRect: m['crop'] != null
+            ? CropRect.fromMap(Map<String, dynamic>.from(m['crop'] as Map))
+            : null,
         activeFilter: m['filter'] as String?,
       );
 }

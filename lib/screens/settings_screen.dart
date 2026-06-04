@@ -5,26 +5,22 @@ import '../theme/app_theme.dart';
 class SettingsState {
   final ThemeMode themeMode;
   final int jpegQuality;
-  final bool saveOriginal;
   final String exportFormat;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
     this.jpegQuality = 90,
-    this.saveOriginal = true,
     this.exportFormat = 'jpeg',
   });
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     int? jpegQuality,
-    bool? saveOriginal,
     String? exportFormat,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
       jpegQuality: jpegQuality ?? this.jpegQuality,
-      saveOriginal: saveOriginal ?? this.saveOriginal,
       exportFormat: exportFormat ?? this.exportFormat,
     );
   }
@@ -34,7 +30,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   SettingsNotifier() : super(const SettingsState());
   void setThemeMode(ThemeMode mode) => state = state.copyWith(themeMode: mode);
   void setJpegQuality(int q) => state = state.copyWith(jpegQuality: q);
-  void setSaveOriginal(bool v) => state = state.copyWith(saveOriginal: v);
   void setExportFormat(String f) => state = state.copyWith(exportFormat: f);
 }
 
@@ -91,13 +86,12 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.save_outlined),
-            title: const Text('Keep original photo'),
-            subtitle: const Text('Save edited copy alongside original'),
-            value: settings.saveOriginal,
-            activeColor: AppTheme.primary,
-            onChanged: notifier.setSaveOriginal,
+          const _InfoTile(
+            icon: Icons.save_outlined,
+            title: 'Originals are always kept',
+            subtitle:
+                'Edits are saved as a new copy in your gallery — the original is never modified',
+            iconColor: Colors.green,
           ),
           _SectionHeader(label: 'Privacy'),
           _InfoTile(icon: Icons.wifi_off_outlined, title: 'No internet access', subtitle: 'This app never connects to the internet', iconColor: Colors.green),

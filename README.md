@@ -74,13 +74,17 @@ lib/
 - [x] 20 built-in offline filters
 - [x] Brightness, contrast, saturation, highlights, shadows, warmth, vignette
 - [x] Before/after compare (hold to reveal original)
-- [x] Edit history (undo/redo per step)
-- [x] Batch edit screen — select multiple photos, apply filter
-- [x] Collage screen — layout picker UI
-- [x] Settings — dark mode, JPEG quality, export format
+- [x] Edit history (undo/redo per step) — persisted to SQLite; reopening a photo restores its last edit
+- [x] Batch edit screen — select multiple photos, apply a filter, and save all to the gallery (real processing with progress + failure count)
+- [x] Collage screen — layout picker + real export (cells composited "cover"-fit with borders, saved to gallery)
+- [x] Settings — dark mode, JPEG quality, export format (all honored by the save pipeline)
 - [x] SQLite database for edit history and presets
 - [x] No internet permission in AndroidManifest
 - [x] Light + dark theme
+
+All save paths (single edit, batch, collage) share one `PhotoSaver` pipeline
+that honors the export format/quality from Settings and writes to a `PixelVault`
+gallery album. Editing is non-destructive — originals are never modified.
 
 ---
 

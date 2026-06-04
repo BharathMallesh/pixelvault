@@ -1,15 +1,13 @@
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gal/gal.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
-import 'package:gal/gal.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import '../providers/editor_provider.dart';
 import '../theme/app_theme.dart';
-import '../utils/image_processor.dart';
+import '../utils/photo_saver.dart';
+import '../utils/database_helper.dart';
+import 'settings_screen.dart';
 import '../widgets/adjustment_slider.dart';
 import '../widgets/filter_strip.dart';
 import '../widgets/hsl_panel.dart';
@@ -38,8 +36,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(editorProvider.notifier).loadPhoto(widget.assetId);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Restore the most recent saved edit for this photo, if any.
+      final restored = await DatabaseHelper().getLastEdit(widget.assetId);
+      if (!mounted) return;
+      ref.read(editorProvider.notifier)
+          .loadPhoto(widget.assetId, restored: restored);
     });
   }
 
@@ -203,41 +205,30 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Future<void> _savePhoto() async {
     final n = ref.read(editorProvider.notifier);
     final settings = ref.read(editorProvider).current;
+    final appSettings = ref.read(settingsProvider);
     n.setSaving(true);
     try {
-      // Pull the original full-resolution bytes from the gallery asset.
-      final asset = await AssetEntity.fromId(widget.assetId);
-      if (asset == null) throw Exception('Original photo not found');
-      final originBytes = await asset.originBytes;
-      if (originBytes == null) throw Exception('Could not read photo data');
-
-      // Run the real pixel pipeline off the UI thread.
-      final Uint8List processed = await ImageProcessor.processBytes(
-        inputBytes: originBytes,
-        settings: settings,
-      );
-
-      // Ensure we have gallery write access before processing pays off.
-      if (!await Gal.hasAccess(toAlbum: true)) {
-        final granted = await Gal.requestAccess(toAlbum: true);
-        if (!granted) {
-          _showError('Gallery permission denied — cannot save photo');
-          return;
-        }
+      // Ensure gallery write access before spending time on processing.
+      if (!await PhotoSaver.ensureAccess()) {
+        _showError('Gallery permission denied — cannot save photo');
+        return;
       }
 
-      // Save to the device gallery via a temp file (gal writes from a path).
-      final dir = await getTemporaryDirectory();
-      final tmpPath = p.join(
-          dir.path, 'pixelvault_${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await File(tmpPath).writeAsBytes(processed);
-      await Gal.putImage(tmpPath, album: 'PixelVault');
-      await File(tmpPath).delete();
+      // Process the original asset and write it to the gallery, honoring the
+      // user's export format / JPEG quality from Settings.
+      await PhotoSaver.processAndSaveAsset(
+        assetId: widget.assetId,
+        settings: settings,
+        exportFormat: appSettings.exportFormat,
+        jpegQuality: appSettings.jpegQuality,
+      );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('✓ Photo saved to gallery — no watermark'),
-          backgroundColor: Colors.green, duration: Duration(seconds: 2),
+        final fmt = appSettings.exportFormat.toUpperCase();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('✓ Saved as $fmt to gallery — no watermark'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
         ));
         Navigator.pop(context);
       }

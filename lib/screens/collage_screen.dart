@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import '../providers/gallery_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/image_processor.dart';
+import '../utils/photo_saver.dart';
+import 'settings_screen.dart';
 
 // Layout definition
 class CollageLayout {
@@ -59,7 +63,9 @@ class CollageScreen extends ConsumerWidget {
         title: const Text('Collage Maker'),
         actions: [
           TextButton.icon(
-            onPressed: photos.any((p) => p != null) ? () => _export(context) : null,
+            onPressed: photos.any((p) => p != null)
+                ? () => _export(context, ref)
+                : null,
             icon: const Icon(Icons.download_outlined, size: 16),
             label: const Text('Export'),
           ),
@@ -231,15 +237,112 @@ class CollageScreen extends ConsumerWidget {
     }
   }
 
-  void _export(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+  Future<void> _export(BuildContext context, WidgetRef ref) async {
+    final layout = ref.read(selectedLayoutProvider);
+    final photoIds = ref.read(collagePhotosProvider);
+    final borderW = ref.read(collageBorderWidthProvider);
+    final borderColor = ref.read(collageBorderColorProvider);
+    final appSettings = ref.read(settingsProvider);
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (!await PhotoSaver.ensureAccess()) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Gallery permission denied — nothing saved'),
+        backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
+
+    // Show a blocking progress dialog while we fetch + composite.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Resolve each cell's full-size bytes from its asset.
+      final cells = <CollageCell>[];
+      for (var i = 0; i < layout.cells.length; i++) {
+        final cell = layout.cells[i];
+        final id = i < photoIds.length ? photoIds[i] : null;
+        Uint8List? bytes;
+        if (id != null) {
+          final asset = await AssetEntity.fromId(id);
+          bytes = await asset?.originBytes;
+        }
+        cells.add(CollageCell(
+          left: cell.l, top: cell.t, right: cell.r, bottom: cell.b,
+          bytes: bytes,
+        ));
+      }
+
+      final transparent = borderColor == Colors.transparent;
+      final asPng = appSettings.exportFormat.toLowerCase() == 'png' || transparent;
+
+      final bytes = await compute(_composeInIsolate, _CollageJob(
+        cells: cells,
+        canvasSize: 2000,
+        borderWidth: borderW,
+        r: (borderColor.r * 255).round(),
+        g: (borderColor.g * 255).round(),
+        b: (borderColor.b * 255).round(),
+        transparent: transparent,
+        asPng: asPng,
+        jpegQuality: appSettings.jpegQuality,
+      ));
+
+      await PhotoSaver.saveBytes(bytes, asPng: asPng);
+
+      if (context.mounted) Navigator.pop(context); // dismiss progress
+      messenger.showSnackBar(const SnackBar(
         content: Text('✓ Collage saved to gallery'),
         backgroundColor: Colors.green,
-      ),
-    );
+      ));
+    } catch (e) {
+      if (context.mounted) Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(
+        content: Text('Could not export collage: $e'),
+        backgroundColor: Colors.redAccent,
+      ));
+    }
   }
 }
+
+// Run the heavy compositing off the UI isolate.
+class _CollageJob {
+  final List<CollageCell> cells;
+  final int canvasSize;
+  final double borderWidth;
+  final int r, g, b;
+  final bool transparent;
+  final bool asPng;
+  final int jpegQuality;
+  const _CollageJob({
+    required this.cells,
+    required this.canvasSize,
+    required this.borderWidth,
+    required this.r,
+    required this.g,
+    required this.b,
+    required this.transparent,
+    required this.asPng,
+    required this.jpegQuality,
+  });
+}
+
+Uint8List _composeInIsolate(_CollageJob job) => ImageProcessor.composeCollage(
+      cells: job.cells,
+      canvasSize: job.canvasSize,
+      borderWidth: job.borderWidth,
+      borderR: job.r,
+      borderG: job.g,
+      borderB: job.b,
+      transparentBorder: job.transparent,
+      asPng: job.asPng,
+      jpegQuality: job.jpegQuality,
+    );
 
 class _CellWidget extends StatelessWidget {
   final String? assetId;

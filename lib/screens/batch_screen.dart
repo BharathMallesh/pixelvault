@@ -4,7 +4,10 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import '../providers/gallery_provider.dart';
 import '../models/filter_model.dart';
+import '../models/edit_settings.dart';
 import '../theme/app_theme.dart';
+import '../utils/photo_saver.dart';
+import 'settings_screen.dart';
 
 class BatchScreen extends ConsumerStatefulWidget {
   const BatchScreen({super.key});
@@ -88,15 +91,45 @@ class _BatchScreenState extends ConsumerState<BatchScreen> {
   }
 
   Future<void> _applyBatch() async {
-    final selected = ref.read(galleryProvider).selectedIds;
+    final selected = ref.read(galleryProvider).selectedIds.toList();
+    final appSettings = ref.read(settingsProvider);
+
+    // Resolve the chosen filter's settings.
+    final filter = builtInFilters.firstWhere(
+      (f) => f.id == _selectedFilterId,
+      orElse: () => builtInFilters.first,
+    );
+    final EditSettings settings = filter.settings;
+
+    // Confirm gallery access once, before the loop.
+    if (!await PhotoSaver.ensureAccess()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Gallery permission denied — nothing saved'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
       _processedCount = 0;
     });
 
-    // Simulate processing each photo
+    var failures = 0;
     for (var i = 0; i < selected.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 300));
+      try {
+        await PhotoSaver.processAndSaveAsset(
+          assetId: selected[i],
+          settings: settings,
+          exportFormat: appSettings.exportFormat,
+          jpegQuality: appSettings.jpegQuality,
+        );
+      } catch (_) {
+        failures++;
+      }
+      if (!mounted) return;
       setState(() => _processedCount = i + 1);
     }
 
@@ -104,13 +137,13 @@ class _BatchScreenState extends ConsumerState<BatchScreen> {
     ref.read(galleryProvider.notifier).clearSelection();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Applied $_selectedFilterId filter to ${selected.length} photos'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      final ok = selected.length - failures;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(failures == 0
+            ? '✓ Saved $ok photo${ok == 1 ? '' : 's'} with “${filter.name}”'
+            : 'Saved $ok of ${selected.length} — $failures failed'),
+        backgroundColor: failures == 0 ? Colors.green : Colors.orange,
+      ));
     }
   }
 }

@@ -7,7 +7,75 @@ import 'package:path/path.dart' as p;
 import '../models/edit_settings.dart';
 import '../models/brush_mask.dart';
 
+/// One collage cell: a normalized rect (0..1) plus the source image bytes
+/// (null = empty slot, painted as a dark placeholder).
+class CollageCell {
+  final double left, top, right, bottom;
+  final Uint8List? bytes;
+  const CollageCell({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.bytes,
+  });
+}
+
 class ImageProcessor {
+  /// Composite [cells] onto a square [canvasSize]px canvas, filling each cell
+  /// with a center-cropped ("cover") version of its image and drawing borders
+  /// of [borderWidth]px in [borderColor]. Returns encoded JPEG/PNG bytes.
+  static Uint8List composeCollage({
+    required List<CollageCell> cells,
+    required int canvasSize,
+    required double borderWidth,
+    required int borderR,
+    required int borderG,
+    required int borderB,
+    bool transparentBorder = false,
+    bool asPng = false,
+    int jpegQuality = 95,
+  }) {
+    final canvas = img.Image(
+        width: canvasSize, height: canvasSize, numChannels: 4);
+    // Background = border color (cells are inset by half the border, so the
+    // gaps between them show this color). Transparent only works for PNG.
+    if (transparentBorder && asPng) {
+      img.fill(canvas, color: img.ColorRgba8(0, 0, 0, 0));
+    } else {
+      img.fill(canvas, color: img.ColorRgb8(borderR, borderG, borderB));
+    }
+
+    final half = (borderWidth / 2).round();
+    for (final cell in cells) {
+      if (cell.bytes == null) continue;
+      var src = img.decodeImage(cell.bytes!);
+      if (src == null) continue;
+
+      final x = (cell.left * canvasSize).round() + half;
+      final y = (cell.top * canvasSize).round() + half;
+      final w = ((cell.right - cell.left) * canvasSize).round() - 2 * half;
+      final h = ((cell.bottom - cell.top) * canvasSize).round() - 2 * half;
+      if (w <= 0 || h <= 0) continue;
+
+      // "Cover" fit: scale so the cell is filled, then center-crop.
+      final scale = math.max(w / src.width, h / src.height);
+      final rw = (src.width * scale).ceil();
+      final rh = (src.height * scale).ceil();
+      final resized = img.copyResize(src, width: rw, height: rh);
+      final cropX = ((rw - w) / 2).round().clamp(0, rw - w);
+      final cropY = ((rh - h) / 2).round().clamp(0, rh - h);
+      final tile =
+          img.copyCrop(resized, x: cropX, y: cropY, width: w, height: h);
+
+      img.compositeImage(canvas, tile, dstX: x, dstY: y);
+    }
+
+    return asPng
+        ? Uint8List.fromList(img.encodePng(canvas))
+        : Uint8List.fromList(img.encodeJpg(canvas, quality: jpegQuality));
+  }
+
   /// Decode [inputBytes], apply [settings], and return the encoded result.
   /// Source bytes come from photo_manager (the gallery asset), so this works
   /// directly on bytes rather than assuming a file path on disk.
