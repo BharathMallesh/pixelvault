@@ -1,0 +1,42 @@
+name: pixelvault
+description: Free offline photo editor - no account, no watermark, no internet needed.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Image editing
+  image: ^4.1.7
+  image_picker: ^1.0.7
+  photo_manager: ^3.0.0
+
+  # Local storage
+  sqflite: ^2.3.2
+  path_provider: ^2.1.2
+  path: ^1.9.0
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # UI
+  google_fonts: ^6.2.1
+  flutter_colorpicker: ^1.0.3
+
+  # Permissions
+  permission_handler: ^11.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/filters/
+    - assets/stickers/
