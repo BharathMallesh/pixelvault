@@ -160,7 +160,10 @@ class ImageProcessor {
 
     // 5. Basic adjustments
     if (s.brightness != 0) {
-      image = img.adjustColor(image, brightness: s.brightness / 100);
+      // adjustColor.brightness is a multiplier (1.0 = no change), not an
+      // additive offset, so map the -100..100 slider around 1.0:
+      // +100 -> ~2.0 (brighter), -100 -> 0.0 (black).
+      image = img.adjustColor(image, brightness: 1.0 + s.brightness / 100);
     }
     if (s.contrast != 0) {
       image = img.adjustColor(image, contrast: 1.0 + s.contrast / 100);
@@ -171,6 +174,18 @@ class ImageProcessor {
     if (s.warmth != 0) {
       // Warmth = shift red up and blue down (or vice versa).
       image = _applyWarmth(image, s.warmth.round());
+    }
+    if (s.tint != 0) {
+      // Tint = green/magenta axis: shift green vs red+blue.
+      image = _applyTint(image, s.tint.round());
+    }
+    if (s.vibrance != 0) {
+      // Vibrance = saturation that spares already-saturated pixels.
+      image = _applyVibrance(image, s.vibrance / 100);
+    }
+    if (s.clarity != 0) {
+      // Clarity = local-contrast / midtone punch via unsharp mask.
+      image = _applyClarity(image, s.clarity / 100);
     }
 
     // 6. Highlights & Shadows (tone mapping approximation)
@@ -221,6 +236,54 @@ class ImageProcessor {
     for (final pixel in dst) {
       pixel.r = (pixel.r + amount).clamp(0, 255);
       pixel.b = (pixel.b - amount).clamp(0, 255);
+    }
+    return dst;
+  }
+
+  // ── Tint (green / magenta) ─────────────────────────────────────────
+  static img.Image _applyTint(img.Image src, int amount) {
+    final dst = img.Image.from(src);
+    final half = (amount / 2).round();
+    for (final pixel in dst) {
+      // Positive = greener; negative = magenta (more red+blue).
+      pixel.g = (pixel.g + amount).clamp(0, 255);
+      pixel.r = (pixel.r - half).clamp(0, 255);
+      pixel.b = (pixel.b - half).clamp(0, 255);
+    }
+    return dst;
+  }
+
+  // ── Vibrance ───────────────────────────────────────────────────────
+  // Like saturation, but scaled down for pixels that are already saturated,
+  // so it boosts muted colors without over-cooking vivid ones.
+  static img.Image _applyVibrance(img.Image src, double amount) {
+    final dst = img.Image.from(src);
+    for (final pixel in dst) {
+      final r = pixel.r.toDouble(), g = pixel.g.toDouble(), b = pixel.b.toDouble();
+      final mx = math.max(r, math.max(g, b));
+      final mn = math.min(r, math.min(g, b));
+      final curSat = mx == 0 ? 0.0 : (mx - mn) / mx; // 0..1
+      final lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      // Less-saturated pixels get the full push; saturated ones get little.
+      final scale = amount * (1.0 - curSat);
+      pixel.r = (lum + (r - lum) * (1 + scale)).clamp(0, 255).round();
+      pixel.g = (lum + (g - lum) * (1 + scale)).clamp(0, 255).round();
+      pixel.b = (lum + (b - lum) * (1 + scale)).clamp(0, 255).round();
+    }
+    return dst;
+  }
+
+  // ── Clarity (local-contrast / midtone punch) ───────────────────────
+  // Unsharp mask: blend the image away from a blurred copy to boost local
+  // contrast. Positive adds punch; negative softens.
+  static img.Image _applyClarity(img.Image src, double amount) {
+    final blurred = img.gaussianBlur(img.Image.from(src), radius: 8);
+    final dst = img.Image.from(src);
+    for (final pixel in dst) {
+      final bp = blurred.getPixel(pixel.x, pixel.y);
+      pixel.r = (pixel.r + (pixel.r - bp.r) * amount).clamp(0, 255).round();
+      pixel.g = (pixel.g + (pixel.g - bp.g) * amount).clamp(0, 255).round();
+      pixel.b = (pixel.b + (pixel.b - bp.b) * amount).clamp(0, 255).round();
     }
     return dst;
   }
