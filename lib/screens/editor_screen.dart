@@ -1,11 +1,12 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import '../providers/editor_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/photo_saver.dart';
+import '../utils/image_processor.dart';
 import '../utils/database_helper.dart';
 import 'settings_screen.dart';
 import '../widgets/adjustment_slider.dart';
@@ -226,9 +227,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       if (mounted) {
         final fmt = appSettings.exportFormat.toUpperCase();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('✓ Saved as $fmt to gallery — no watermark'),
+          content: Text('✓ Saved as $fmt to the "PixelVault" album in your gallery'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 3),
         ));
         Navigator.pop(context);
       }
@@ -269,26 +270,93 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 }
 
 // ── Photo Preview ──────────────────────────────────────────────────
+// Shows a LIVE preview of the current edit. It loads a downscaled copy of the
+// asset once, then re-runs the real ImageProcessor pipeline (off the UI thread)
+// whenever the edit settings change, so filters/adjustments are visible before
+// saving. Holding (showBefore) reveals the untouched original.
 
-class _PhotoPreview extends StatelessWidget {
+class _PhotoPreview extends ConsumerStatefulWidget {
   final String assetId;
   final bool showBefore;
   const _PhotoPreview({required this.assetId, required this.showBefore});
 
   @override
+  ConsumerState<_PhotoPreview> createState() => _PhotoPreviewState();
+}
+
+class _PhotoPreviewState extends ConsumerState<_PhotoPreview> {
+  Uint8List? _baseBytes;   // downscaled original, loaded once
+  Uint8List? _original;    // same, shown for before/after
+  Uint8List? _preview;     // latest processed result
+  EditSettings? _lastSettings;
+  bool _processing = false;
+  bool _queued = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBase();
+  }
+
+  Future<void> _loadBase() async {
+    final asset = await AssetEntity.fromId(widget.assetId);
+    if (asset == null) return;
+    // A ~1280px thumbnail keeps preview processing fast and responsive.
+    final bytes = await asset.thumbnailDataWithSize(
+        const ThumbnailSize(1280, 1280), quality: 90);
+    if (!mounted || bytes == null) return;
+    setState(() {
+      _baseBytes = bytes;
+      _original = bytes;
+      _preview = bytes;
+    });
+    _reprocess(ref.read(editorProvider).current);
+  }
+
+  Future<void> _reprocess(EditSettings settings) async {
+    if (_baseBytes == null) return;
+    if (settings.isDefault) {
+      // Nothing to apply — show the original directly.
+      if (mounted) setState(() => _preview = _original);
+      _lastSettings = settings;
+      return;
+    }
+    if (_processing) { _queued = true; return; }
+    _processing = true;
+    _lastSettings = settings;
+    try {
+      final out = await ImageProcessor.processBytes(
+          inputBytes: _baseBytes!, settings: settings);
+      if (mounted) setState(() => _preview = out);
+    } catch (_) {
+      // Keep showing the last good preview on a transient error.
+    } finally {
+      _processing = false;
+      if (_queued) {
+        _queued = false;
+        final latest = ref.read(editorProvider).current;
+        if (latest != _lastSettings) _reprocess(latest);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return FutureBuilder<AssetEntity?>(
-      future: AssetEntity.fromId(assetId),
-      builder: (ctx, snap) {
-        if (!snap.hasData)
-          return const Center(child: CircularProgressIndicator(color: Colors.white38));
-        return Stack(fit: StackFit.expand, children: [
-          InteractiveViewer(
-              child: AssetEntityImage(snap.data!, isOriginal: true, fit: BoxFit.contain)),
-          if (showBefore) Container(color: Colors.black54),
-        ]);
-      },
-    );
+    // Re-run the pipeline whenever the current settings change.
+    final settings = ref.watch(editorProvider.select((s) => s.current));
+    if (_baseBytes != null && settings != _lastSettings) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reprocess(settings));
+    }
+
+    if (_preview == null) {
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.white38));
+    }
+    final shown = widget.showBefore ? _original! : _preview!;
+    return Stack(fit: StackFit.expand, children: [
+      InteractiveViewer(child: Image.memory(shown, fit: BoxFit.contain,
+          gaplessPlayback: true)),
+    ]);
   }
 }
 

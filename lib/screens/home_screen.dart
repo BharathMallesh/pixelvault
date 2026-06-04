@@ -208,7 +208,10 @@ class _PhotoGrid extends ConsumerWidget {
                 MaterialPageRoute(
                   builder: (_) => EditorScreen(assetId: photo.id),
                 ),
-              );
+              ).then((_) {
+                // Reload so a photo just saved to the gallery shows up.
+                notifier.loadPhotos();
+              });
             }
           },
           onLongPress: () {
