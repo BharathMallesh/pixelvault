@@ -59,7 +59,12 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
     state = state.copyWith(isLoading: true);
 
     final permission = await PhotoManager.requestPermissionExtend();
-    if (!permission.isAuth) {
+    // Android 14+ / iOS may grant "limited" (selected photos) access. That is
+    // still usable — only treat an outright denial as no access.
+    final hasAccess =
+        permission == PermissionState.authorized ||
+        permission == PermissionState.limited;
+    if (!hasAccess) {
       state = state.copyWith(
         isLoading: false,
         hasPermission: false,

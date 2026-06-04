@@ -51,6 +51,9 @@ class ImageProcessor {
       if (cell.bytes == null) continue;
       var src = img.decodeImage(cell.bytes!);
       if (src == null) continue;
+      if (src.numChannels < 3 || src.hasPalette) {
+        src = src.convert(numChannels: 3);
+      }
 
       final x = (cell.left * canvasSize).round() + half;
       final y = (cell.top * canvasSize).round() + half;
@@ -87,6 +90,14 @@ class ImageProcessor {
   }) async {
     img.Image? image = img.decodeImage(inputBytes);
     if (image == null) throw Exception('Could not decode image');
+
+    // Normalize to 3-channel RGB. Grayscale (1-ch) and palette images decode
+    // with the value only in the red channel, which would render as a red
+    // flood once written back to a 3-channel JPEG. Expanding here makes the
+    // gray value populate R, G and B equally.
+    if (image.numChannels < 3 || image.hasPalette) {
+      image = image.convert(numChannels: 3);
+    }
 
     image = _applyAll(image, settings);
 
