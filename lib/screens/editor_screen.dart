@@ -43,7 +43,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void initState() {
     super.initState();
+    // Overlays (text/draw/stickers) live in global providers, so clear any
+    // left over from a previously edited photo — otherwise they'd bleed onto
+    // this photo and into its saved output.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      ref.read(textOverlaysProvider.notifier).state = [];
+      ref.read(selectedTextIdProvider.notifier).state = null;
+      ref.read(stickerOverlaysProvider.notifier).state = [];
+      ref.read(selectedStickerIdProvider.notifier).state = null;
+      ref.read(drawStrokesProvider.notifier).state = [];
+      ref.read(activeDrawStrokeProvider.notifier).state = null;
+
       // Restore the most recent saved edit for this photo, if any.
       final restored = await DatabaseHelper().getLastEdit(widget.assetId);
       if (!mounted) return;
