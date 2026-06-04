@@ -1,3 +1,5 @@
+import 'brush_mask.dart';
+
 class EditSettings {
   // Basic adjustments (-100 to 100)
   final double brightness;
@@ -45,6 +47,18 @@ class EditSettings {
   // Phase 2 — Background blur strength (0 = off)
   final double blurStrength;
 
+  // Phase 2 — Brush masks (resolution-independent, normalized dabs)
+  // Spots to clone-heal:
+  final BrushMask healMask;
+  // In-focus subject region for background blur (empty = center-weighted):
+  final BrushMask focusMask;
+  // Region for selective adjustments, plus the adjustments to apply there:
+  final BrushMask selectiveMask;
+  final double selBrightness;
+  final double selContrast;
+  final double selSaturation;
+  final double selWarmth;
+
   // Rotation & flip
   final double rotation;
   final bool flipHorizontal;
@@ -82,6 +96,14 @@ class EditSettings {
     this.perspectiveHorizontal = 0,
     // Blur
     this.blurStrength = 0,
+    // Brush masks
+    this.healMask = const BrushMask(),
+    this.focusMask = const BrushMask(),
+    this.selectiveMask = const BrushMask(),
+    this.selBrightness = 0,
+    this.selContrast = 0,
+    this.selSaturation = 0,
+    this.selWarmth = 0,
     // Transform
     this.rotation = 0,
     this.flipHorizontal = false,
@@ -100,6 +122,9 @@ class EditSettings {
       hslBlueHue == 0 && hslBlueSat == 0 && hslBlueLum == 0 &&
       perspectiveVertical == 0 && perspectiveHorizontal == 0 &&
       blurStrength == 0 && rotation == 0 &&
+      healMask.isEmpty && focusMask.isEmpty && selectiveMask.isEmpty &&
+      selBrightness == 0 && selContrast == 0 &&
+      selSaturation == 0 && selWarmth == 0 &&
       !flipHorizontal && !flipVertical &&
       cropRect == null && activeFilter == null;
 
@@ -116,6 +141,9 @@ class EditSettings {
     double? hslPurpleHue, double? hslPurpleSat, double? hslPurpleLum,
     double? perspectiveVertical, double? perspectiveHorizontal,
     double? blurStrength,
+    BrushMask? healMask, BrushMask? focusMask, BrushMask? selectiveMask,
+    double? selBrightness, double? selContrast,
+    double? selSaturation, double? selWarmth,
     double? rotation, bool? flipHorizontal, bool? flipVertical,
     CropRect? cropRect, bool clearCrop = false,
     String? activeFilter, bool clearFilter = false,
@@ -155,6 +183,13 @@ class EditSettings {
       perspectiveVertical: perspectiveVertical ?? this.perspectiveVertical,
       perspectiveHorizontal: perspectiveHorizontal ?? this.perspectiveHorizontal,
       blurStrength: blurStrength ?? this.blurStrength,
+      healMask: healMask ?? this.healMask,
+      focusMask: focusMask ?? this.focusMask,
+      selectiveMask: selectiveMask ?? this.selectiveMask,
+      selBrightness: selBrightness ?? this.selBrightness,
+      selContrast: selContrast ?? this.selContrast,
+      selSaturation: selSaturation ?? this.selSaturation,
+      selWarmth: selWarmth ?? this.selWarmth,
       rotation: rotation ?? this.rotation,
       flipHorizontal: flipHorizontal ?? this.flipHorizontal,
       flipVertical: flipVertical ?? this.flipVertical,

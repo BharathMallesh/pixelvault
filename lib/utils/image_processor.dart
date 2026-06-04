@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/edit_settings.dart';
+import '../models/brush_mask.dart';
 
 class ImageProcessor {
   /// Decode [inputBytes], apply [settings], and return the encoded result.
@@ -72,7 +73,13 @@ class ImageProcessor {
           image, s.perspectiveVertical / 100, s.perspectiveHorizontal / 100);
     }
 
-    // 4. Basic adjustments
+    // 4. Healing brush (clone clean nearby patches over marked spots).
+    //    Done before color grading so healed pixels are graded consistently.
+    if (s.healMask.isNotEmpty) {
+      image = _applyHeal(image, s.healMask);
+    }
+
+    // 5. Basic adjustments
     if (s.brightness != 0) {
       image = img.adjustColor(image, brightness: s.brightness / 100);
     }
@@ -87,17 +94,24 @@ class ImageProcessor {
       image = _applyWarmth(image, s.warmth.round());
     }
 
-    // 5. Highlights & Shadows (tone mapping approximation)
+    // 6. Highlights & Shadows (tone mapping approximation)
     if (s.highlights != 0 || s.shadows != 0) {
       image = _applyTone(image, s.highlights, s.shadows);
     }
 
-    // 6. HSL per-channel color grading
+    // 7. HSL per-channel color grading
     if (_hasHslEdits(s)) {
       image = _applyHsl(image, s);
     }
 
-    // 7. Sharpness
+    // 8. Selective (masked) local adjustments
+    if (s.selectiveMask.isNotEmpty &&
+        (s.selBrightness != 0 || s.selContrast != 0 ||
+         s.selSaturation != 0 || s.selWarmth != 0)) {
+      image = _applySelective(image, s);
+    }
+
+    // 9. Sharpness
     if (s.sharpness > 0) {
       image = img.convolution(image, filter: [
         0, -s.sharpness / 200,  0,
@@ -106,12 +120,15 @@ class ImageProcessor {
       ], div: 1);
     }
 
-    // 8. Background blur (radial / center-weighted bokeh)
+    // 10. Background blur. If the user painted a focus mask, keep that region
+    //     sharp and blur everything else; otherwise fall back to a
+    //     center-weighted radial blur.
     if (s.blurStrength > 0) {
-      image = _applyRadialBlur(image, s.blurStrength / 100);
+      image = _applyBackgroundBlur(
+          image, s.blurStrength / 100, s.focusMask);
     }
 
-    // 9. Vignette
+    // 11. Vignette
     if (s.vignette > 0) {
       image = _applyVignette(image, s.vignette / 100);
     }
@@ -289,30 +306,44 @@ class ImageProcessor {
     );
   }
 
-  // ── Radial background blur (bokeh approximation) ───────────────────
+  // ── Background blur (bokeh) ────────────────────────────────────────
   // Blurs the whole image, then blends the sharp original back into the
-  // centre using a radial mask, so the subject area (centre) stays in focus
-  // while the surroundings soften. This is a center-weighted approximation,
-  // not ML subject segmentation — see README TODO.
-  static img.Image _applyRadialBlur(img.Image src, double strength) {
+  // in-focus region. If the user painted a [focusMask], that region stays
+  // sharp; otherwise we fall back to a center-weighted radial focus. Either
+  // way the focus boundary is feathered for a natural transition.
+  static img.Image _applyBackgroundBlur(
+      img.Image src, double strength, BrushMask focusMask) {
     final radius = (strength * 12).round().clamp(1, 14);
     final blurred = img.gaussianBlur(img.Image.from(src), radius: radius);
-
     final dst = img.Image.from(src);
+
+    if (focusMask.isNotEmpty) {
+      // sharpness[i] in 0..1 — 1 = keep sharp (subject), 0 = fully blurred.
+      final sharp = _rasterizeMask(focusMask, src.width, src.height,
+          feather: 0.04);
+      for (final pixel in dst) {
+        final keep = sharp[pixel.y * src.width + pixel.x];
+        final t = 1.0 - keep; // blend amount toward blurred
+        if (t <= 0) continue;
+        final bp = blurred.getPixel(pixel.x, pixel.y);
+        pixel.r = (pixel.r * (1 - t) + bp.r * t).round();
+        pixel.g = (pixel.g * (1 - t) + bp.g * t).round();
+        pixel.b = (pixel.b * (1 - t) + bp.b * t).round();
+      }
+      return dst;
+    }
+
+    // Fallback: center-weighted radial focus.
     final cx = src.width / 2.0;
     final cy = src.height / 2.0;
     final maxDist = math.sqrt(cx * cx + cy * cy);
-    // Sharp focus radius shrinks as strength grows.
     final focus = (1.0 - strength) * 0.45 + 0.15; // 0.15..0.60 of maxDist
     const feather = 0.25;
-
     for (final pixel in dst) {
       final dx = pixel.x - cx;
       final dy = pixel.y - cy;
       final dist = math.sqrt(dx * dx + dy * dy) / maxDist;
-      // 0 = fully sharp, 1 = fully blurred.
-      double t = (dist - focus) / feather;
-      t = t.clamp(0.0, 1.0);
+      double t = ((dist - focus) / feather).clamp(0.0, 1.0);
       if (t <= 0) continue;
       final bp = blurred.getPixel(pixel.x, pixel.y);
       pixel.r = (pixel.r * (1 - t) + bp.r * t).round();
@@ -320,6 +351,140 @@ class ImageProcessor {
       pixel.b = (pixel.b * (1 - t) + bp.b * t).round();
     }
     return dst;
+  }
+
+  // ── Healing brush (patch-clone fill) ───────────────────────────────
+  // For each marked dab, copy a clean patch from a nearby offset region over
+  // the spot, blended with a feathered (radial falloff) edge so the repair is
+  // seamless. The source patch is offset perpendicular-ish to keep texture.
+  static img.Image _applyHeal(img.Image src, BrushMask mask) {
+    final dst = img.Image.from(src);
+    final w = src.width, h = src.height;
+
+    for (final dab in mask.dabs) {
+      final cx = (dab.x * w).round();
+      final cy = (dab.y * h).round();
+      final r = (dab.radius * w).round().clamp(2, w);
+
+      // Pick a clean source center offset by ~2 radii. Try right, then left,
+      // then down, then up — whichever stays in bounds.
+      final candidates = <List<int>>[
+        [cx + 2 * r, cy], [cx - 2 * r, cy],
+        [cx, cy + 2 * r], [cx, cy - 2 * r],
+      ];
+      int sxc = cx, syc = cy;
+      for (final c in candidates) {
+        if (c[0] - r >= 0 && c[0] + r < w && c[1] - r >= 0 && c[1] + r < h) {
+          sxc = c[0];
+          syc = c[1];
+          break;
+        }
+      }
+      if (sxc == cx && syc == cy) continue; // no clean source found
+
+      for (int dy = -r; dy <= r; dy++) {
+        for (int dx = -r; dx <= r; dx++) {
+          final dist = math.sqrt(dx * dx + dy * dy) / r;
+          if (dist > 1.0) continue;
+          final tx = cx + dx, ty = cy + dy;
+          if (tx < 0 || tx >= w || ty < 0 || ty >= h) continue;
+          final sx = sxc + dx, sy = syc + dy;
+          if (sx < 0 || sx >= w || sy < 0 || sy >= h) continue;
+
+          // Feather: full clone at center, fading to original near the edge.
+          final blend = (1.0 - dist * dist).clamp(0.0, 1.0);
+          final tp = dst.getPixel(tx, ty);
+          final sp = src.getPixel(sx, sy);
+          tp.r = (tp.r * (1 - blend) + sp.r * blend).round();
+          tp.g = (tp.g * (1 - blend) + sp.g * blend).round();
+          tp.b = (tp.b * (1 - blend) + sp.b * blend).round();
+        }
+      }
+    }
+    return dst;
+  }
+
+  // ── Selective (masked) adjustments ─────────────────────────────────
+  // Apply brightness/contrast/saturation/warmth only inside the painted
+  // region, weighted by a feathered mask so edits blend with their surrounds.
+  static img.Image _applySelective(img.Image src, EditSettings s) {
+    final dst = img.Image.from(src);
+    final mask = _rasterizeMask(s.selectiveMask, src.width, src.height,
+        feather: 0.05);
+    final w = src.width;
+
+    final bright = s.selBrightness / 100 * 255; // additive
+    final contrast = 1.0 + s.selContrast / 100;
+    final satScale = 1.0 + s.selSaturation / 100;
+    final warmth = s.selWarmth.round();
+
+    for (final pixel in dst) {
+      final m = mask[pixel.y * w + pixel.x];
+      if (m <= 0) continue;
+
+      double r = pixel.r.toDouble();
+      double g = pixel.g.toDouble();
+      double b = pixel.b.toDouble();
+
+      // Brightness (additive)
+      r += bright; g += bright; b += bright;
+      // Contrast around mid-gray
+      r = (r - 128) * contrast + 128;
+      g = (g - 128) * contrast + 128;
+      b = (b - 128) * contrast + 128;
+      // Saturation around luminance
+      final lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = lum + (r - lum) * satScale;
+      g = lum + (g - lum) * satScale;
+      b = lum + (b - lum) * satScale;
+      // Warmth
+      r += warmth; b -= warmth;
+
+      // Blend edited result with original by mask coverage.
+      pixel.r = (pixel.r * (1 - m) + r.clamp(0, 255) * m).round();
+      pixel.g = (pixel.g * (1 - m) + g.clamp(0, 255) * m).round();
+      pixel.b = (pixel.b * (1 - m) + b.clamp(0, 255) * m).round();
+    }
+    return dst;
+  }
+
+  // Rasterize a brush mask into a [w*h] coverage buffer in 0..1. Each dab
+  // stamps a radial falloff; [feather] (fraction of width) softens the outer
+  // edge. Values are accumulated and clamped so overlapping dabs stay solid.
+  static List<double> _rasterizeMask(BrushMask mask, int w, int h,
+      {double feather = 0.04}) {
+    final buf = List<double>.filled(w * h, 0.0);
+    final featherPx = (feather * w).clamp(1.0, w.toDouble());
+
+    for (final dab in mask.dabs) {
+      final cx = dab.x * w;
+      final cy = dab.y * h;
+      final r = dab.radius * w;
+      final outer = r + featherPx;
+      final x0 = (cx - outer).floor().clamp(0, w - 1);
+      final x1 = (cx + outer).ceil().clamp(0, w - 1);
+      final y0 = (cy - outer).floor().clamp(0, h - 1);
+      final y1 = (cy + outer).ceil().clamp(0, h - 1);
+
+      for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+          final dx = x - cx, dy = y - cy;
+          final d = math.sqrt(dx * dx + dy * dy);
+          double cov;
+          if (d <= r) {
+            cov = 1.0;
+          } else if (d <= outer) {
+            cov = 1.0 - (d - r) / featherPx; // linear feather
+          } else {
+            cov = 0.0;
+          }
+          if (cov <= 0) continue;
+          final i = y * w + x;
+          if (cov > buf[i]) buf[i] = cov; // union, keep strongest coverage
+        }
+      }
+    }
+    return buf;
   }
 
   // ── Vignette ───────────────────────────────────────────────────────

@@ -84,19 +84,23 @@ lib/
 
 ---
 
-## 🔜 Phase 2 (Next)
+## ✅ Phase 2 (Complete)
 
 - [x] HSL color tuning per channel — per-band hue/sat/lum grading with smooth membership weighting
 - [x] Perspective fix tool — keystone correction via inverse bilinear warp
-- [x] Background blur (bokeh) — center-weighted radial blur (subject in centre stays sharp)
+- [x] Healing / spot removal brush — patch-clone fill: each marked dab is repaired by blending a clean nearby patch with a feathered edge
+- [x] Background blur (bokeh) — paint the subject to keep it sharp; everything outside the feathered focus mask is blurred (falls back to center-weighted radial blur if no subject is painted)
+- [x] Selective edit brush — brush a region, then apply brightness/contrast/saturation/warmth only inside the feathered mask
 - [x] Actual image saving to gallery — real pixel pipeline + `gal` write to a `PixelVault` album
-- [ ] Healing / spot removal brush — UI marks spots; pixel inpainting not yet implemented (see TODO in `lib/utils/image_processor.dart`)
-- [ ] Selective edit brush — adjustments are still global, not masked
-- [ ] ML subject-aware bokeh — current blur is center-weighted, not segmentation-based
 
-> **Note on Background Blur:** the current implementation keeps the image centre
-> sharp and softens the edges radially. True subject-aware bokeh needs on-device
-> segmentation (e.g. a TFLite portrait mask) and is tracked as a follow-up.
+All brush tools share a resolution-independent `BrushMask` model (normalized
+dabs), so masks rasterize correctly at full output resolution. A single brush
+stroke is one undo step (live updates during the drag, committed on release).
+
+> **Note on bokeh:** the focus mask is user-painted rather than ML-segmented.
+> This is intentional — it avoids a heavy on-device model, works on any subject
+> (not just people), and gives the user direct control. Automatic
+> portrait-segmentation (e.g. a TFLite mask) remains a possible future addition.
 
 ---
 

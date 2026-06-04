@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/edit_settings.dart';
+import '../models/brush_mask.dart';
 
-enum EditorTool { filter, adjust, hsl, crop, heal, perspective, blur, text, draw, sticker }
+enum EditorTool { filter, adjust, hsl, crop, heal, perspective, blur, selective, text, draw, sticker }
 
 class EditorState {
   final String? assetId;
@@ -66,6 +67,21 @@ class EditorNotifier extends StateNotifier<EditorState> {
       history: newHistory,
       historyIndex: newHistory.length - 1,
     );
+  }
+
+  /// Update the live settings WITHOUT pushing a history entry. Used for
+  /// continuous gestures (brush dabs) so a single stroke doesn't create
+  /// hundreds of undo steps. Call [commitHistory] on gesture end.
+  void updateLive(EditSettings newSettings) {
+    state = state.copyWith(current: newSettings);
+  }
+
+  /// Snapshot the current live settings as a single undoable step.
+  void commitHistory() {
+    final trimmed = state.history.sublist(0, state.historyIndex + 1);
+    final newHistory = [...trimmed, state.current];
+    state = state.copyWith(
+        history: newHistory, historyIndex: newHistory.length - 1);
   }
 
   void undo() {
@@ -138,6 +154,30 @@ class EditorNotifier extends StateNotifier<EditorState> {
 
   // Blur
   void setBlurStrength(double v) => updateSetting(state.current.copyWith(blurStrength: v));
+
+  // ── Brush masks ───────────────────────────────────────────────────
+  // Heal: stream dabs live, clear all. Call commitHistory() on stroke end.
+  void addHealDab(BrushDab dab) =>
+      updateLive(state.current.copyWith(healMask: state.current.healMask.add(dab)));
+  void clearHeal() =>
+      updateSetting(state.current.copyWith(healMask: const BrushMask()));
+
+  // Focus mask (subject to keep sharp during background blur).
+  void addFocusDab(BrushDab dab) =>
+      updateLive(state.current.copyWith(focusMask: state.current.focusMask.add(dab)));
+  void clearFocus() =>
+      updateSetting(state.current.copyWith(focusMask: const BrushMask()));
+
+  // Selective edit: brush region + the adjustments to apply there.
+  void addSelectiveDab(BrushDab dab) => updateLive(
+      state.current.copyWith(selectiveMask: state.current.selectiveMask.add(dab)));
+  void clearSelective() => updateSetting(state.current.copyWith(
+      selectiveMask: const BrushMask(),
+      selBrightness: 0, selContrast: 0, selSaturation: 0, selWarmth: 0));
+  void setSelBrightness(double v) => updateSetting(state.current.copyWith(selBrightness: v));
+  void setSelContrast(double v)   => updateSetting(state.current.copyWith(selContrast: v));
+  void setSelSaturation(double v) => updateSetting(state.current.copyWith(selSaturation: v));
+  void setSelWarmth(double v)     => updateSetting(state.current.copyWith(selWarmth: v));
 
   // Crop
   void setCrop(CropRect rect)    => updateSetting(state.current.copyWith(cropRect: rect));

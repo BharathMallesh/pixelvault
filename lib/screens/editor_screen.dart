@@ -17,6 +17,7 @@ import '../widgets/crop_tool.dart';
 import '../widgets/heal_tool.dart';
 import '../widgets/perspective_tool.dart';
 import '../widgets/blur_tool.dart';
+import '../widgets/selective_tool.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
 import '../widgets/sticker_tool.dart';
@@ -72,6 +73,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   // Heal overlay
                   if (state.activeTool == EditorTool.heal)
                     HealToolOverlay(imageSize: size),
+                  // Background-blur focus brush overlay
+                  if (state.activeTool == EditorTool.blur)
+                    FocusToolOverlay(imageSize: size),
+                  // Selective edit brush overlay
+                  if (state.activeTool == EditorTool.selective)
+                    SelectiveToolOverlay(imageSize: size),
                   // Text overlays (always visible)
                   TextOverlayCanvas(canvasSize: size),
                   // Sticker overlays (always visible)
@@ -186,6 +193,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       case EditorTool.heal:        return 'Healing Brush';
       case EditorTool.perspective: return 'Perspective';
       case EditorTool.blur:        return 'Background Blur';
+      case EditorTool.selective:   return 'Selective Edit';
       case EditorTool.text:        return 'Add Text';
       case EditorTool.draw:        return 'Draw';
       case EditorTool.sticker:     return 'Stickers';
@@ -310,6 +318,7 @@ class _ToolTabBar extends StatelessWidget {
       (EditorTool.heal,        Icons.healing_outlined,       'Heal'),
       (EditorTool.perspective, Icons.grid_3x3_outlined,      'Persp.'),
       (EditorTool.blur,        Icons.lens_blur_outlined,     'Blur'),
+      (EditorTool.selective,   Icons.gesture_outlined,       'Select'),
       (EditorTool.text,        Icons.text_fields_outlined,   'Text'),
       (EditorTool.draw,        Icons.brush_outlined,         'Draw'),
       (EditorTool.sticker,     Icons.emoji_emotions_outlined,'Sticker'),
@@ -368,6 +377,7 @@ class _ToolPanel extends ConsumerWidget {
       case EditorTool.heal:        return const HealToolPanel();
       case EditorTool.perspective: return const PerspectiveToolPanel();
       case EditorTool.blur:        return const BlurToolPanel();
+      case EditorTool.selective:   return const SelectiveToolPanel();
       case EditorTool.text:        return const TextToolPanel();
       case EditorTool.draw:        return const DrawToolPanel();
       case EditorTool.sticker:     return const StickerToolPanel();

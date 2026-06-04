@@ -1,73 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/brush_mask.dart';
+import '../providers/editor_provider.dart';
 import '../theme/app_theme.dart';
 
-// Stores heal brush strokes as a list of touch points.
-//
-// TODO(heal): These points are collected and previewed, but the pixel-level
-// spot removal is NOT yet implemented. To make the heal brush functional,
-// pass `healPointsProvider` into EditSettings (or a side channel) and add an
-// inpainting pass in ImageProcessor — e.g. for each HealPoint, sample a clean
-// neighbouring patch and blend it over the marked radius (a simple
-// Telea/nearest-source fill). Until then this tool is preview-only.
-class HealPoint {
-  final double x; // 0.0 – 1.0 (normalized)
-  final double y;
-  final double radius;
-  const HealPoint({required this.x, required this.y, required this.radius});
-}
-
-final healPointsProvider = StateProvider<List<HealPoint>>((ref) => []);
+// Brush size for the healing tool, in screen pixels.
 final healBrushSizeProvider = StateProvider<double>((ref) => 30.0);
 
-class HealToolOverlay extends ConsumerStatefulWidget {
+// ── Heal overlay: paints dabs onto the editor's heal mask ────────────
+class HealToolOverlay extends ConsumerWidget {
   final Size imageSize;
   const HealToolOverlay({super.key, required this.imageSize});
 
   @override
-  ConsumerState<HealToolOverlay> createState() => _HealToolOverlayState();
-}
-
-class _HealToolOverlayState extends ConsumerState<HealToolOverlay> {
-  @override
-  Widget build(BuildContext context) {
-    final points = ref.watch(healPointsProvider);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mask = ref.watch(editorProvider).current.healMask;
     final brushSize = ref.watch(healBrushSizeProvider);
 
+    void addDab(Offset pos, BuildContext ctx) {
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      final size = box.size;
+      ref.read(editorProvider.notifier).addHealDab(BrushDab(
+            x: (pos.dx / size.width).clamp(0.0, 1.0),
+            y: (pos.dy / size.height).clamp(0.0, 1.0),
+            radius: brushSize / size.width,
+          ));
+    }
+
     return GestureDetector(
-      onTapDown: (d) => _addPoint(d.localPosition, context),
-      onPanUpdate: (d) => _addPoint(d.localPosition, context),
+      onTapDown: (d) {
+        addDab(d.localPosition, context);
+        ref.read(editorProvider.notifier).commitHistory();
+      },
+      onPanUpdate: (d) => addDab(d.localPosition, context),
+      onPanEnd: (_) => ref.read(editorProvider.notifier).commitHistory(),
       child: CustomPaint(
-        painter: _HealPainter(points: points, brushSize: brushSize),
+        painter: _HealPainter(mask: mask),
         size: Size.infinite,
       ),
     );
   }
-
-  void _addPoint(Offset pos, BuildContext context) {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final size = box.size;
-    final brushSize = ref.read(healBrushSizeProvider);
-    ref.read(healPointsProvider.notifier).update((list) => [
-          ...list,
-          HealPoint(
-            x: pos.dx / size.width,
-            y: pos.dy / size.height,
-            radius: brushSize / size.width,
-          ),
-        ]);
-  }
 }
 
 class _HealPainter extends CustomPainter {
-  final List<HealPoint> points;
-  final double brushSize;
-  _HealPainter({required this.points, required this.brushSize});
+  final BrushMask mask;
+  _HealPainter({required this.mask});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final fill = Paint()
       ..color = AppTheme.primary.withOpacity(0.35)
       ..style = PaintingStyle.fill;
     final border = Paint()
@@ -75,28 +57,28 @@ class _HealPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
-    for (final p in points) {
-      final center = Offset(p.x * size.width, p.y * size.height);
-      final radius = p.radius * size.width;
-      canvas.drawCircle(center, radius, paint);
+    for (final d in mask.dabs) {
+      final center = Offset(d.x * size.width, d.y * size.height);
+      final radius = d.radius * size.width;
+      canvas.drawCircle(center, radius, fill);
       canvas.drawCircle(center, radius, border);
     }
   }
 
   @override
   bool shouldRepaint(_HealPainter old) =>
-      old.points.length != points.length;
+      old.mask.dabs.length != mask.dabs.length;
 }
 
-// ── Heal Tool Panel (controls shown below image) ─────────────────
-
+// ── Heal Tool Panel (controls shown below image) ─────────────────────
 class HealToolPanel extends ConsumerWidget {
   const HealToolPanel({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final brushSize = ref.watch(healBrushSizeProvider);
-    final points = ref.watch(healPointsProvider);
+    final mask = ref.watch(editorProvider).current.healMask;
+    final count = mask.dabs.length;
 
     return Container(
       color: const Color(0xFF1A1A1A),
@@ -151,10 +133,9 @@ class HealToolPanel extends ConsumerWidget {
               ),
               const Spacer(),
               // Clear all spots button
-              if (points.isNotEmpty)
+              if (count > 0)
                 GestureDetector(
-                  onTap: () =>
-                      ref.read(healPointsProvider.notifier).state = [],
+                  onTap: () => ref.read(editorProvider.notifier).clearHeal(),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 6),
@@ -177,8 +158,7 @@ class HealToolPanel extends ConsumerWidget {
                   ),
                 ),
               const SizedBox(width: 8),
-              // Point count
-              Text('${points.length} spot${points.length == 1 ? '' : 's'}',
+              Text('$count spot${count == 1 ? '' : 's'}',
                   style: const TextStyle(fontSize: 11, color: Colors.white38)),
             ],
           ),

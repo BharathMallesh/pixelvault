@@ -1,8 +1,71 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/brush_mask.dart';
 import '../providers/editor_provider.dart';
 import '../theme/app_theme.dart';
 
+// Brush size for painting the in-focus subject, in screen pixels.
+final focusBrushSizeProvider = StateProvider<double>((ref) => 40.0);
+
+// ── Focus overlay: paint the subject region to keep sharp ────────────
+class FocusToolOverlay extends ConsumerWidget {
+  final Size imageSize;
+  const FocusToolOverlay({super.key, required this.imageSize});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mask = ref.watch(editorProvider).current.focusMask;
+    final brushSize = ref.watch(focusBrushSizeProvider);
+
+    void addDab(Offset pos, BuildContext ctx) {
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      final size = box.size;
+      ref.read(editorProvider.notifier).addFocusDab(BrushDab(
+            x: (pos.dx / size.width).clamp(0.0, 1.0),
+            y: (pos.dy / size.height).clamp(0.0, 1.0),
+            radius: brushSize / size.width,
+          ));
+    }
+
+    return GestureDetector(
+      onTapDown: (d) {
+        addDab(d.localPosition, context);
+        ref.read(editorProvider.notifier).commitHistory();
+      },
+      onPanUpdate: (d) => addDab(d.localPosition, context),
+      onPanEnd: (_) => ref.read(editorProvider.notifier).commitHistory(),
+      child: CustomPaint(
+        painter: _FocusPainter(mask: mask),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _FocusPainter extends CustomPainter {
+  final BrushMask mask;
+  _FocusPainter({required this.mask});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Tint the painted (in-focus) region so users see what stays sharp.
+    final fill = Paint()
+      ..color = Colors.yellow.withOpacity(0.22)
+      ..style = PaintingStyle.fill;
+    for (final d in mask.dabs) {
+      canvas.drawCircle(
+          Offset(d.x * size.width, d.y * size.height),
+          d.radius * size.width, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FocusPainter old) =>
+      old.mask.dabs.length != mask.dabs.length;
+}
+
+// ── Blur Tool Panel ──────────────────────────────────────────────────
 class BlurToolPanel extends ConsumerWidget {
   const BlurToolPanel({super.key});
 
@@ -11,6 +74,8 @@ class BlurToolPanel extends ConsumerWidget {
     final state = ref.watch(editorProvider);
     final n = ref.read(editorProvider.notifier);
     final blurStrength = state.current.blurStrength;
+    final hasFocus = state.current.focusMask.isNotEmpty;
+    final brushSize = ref.watch(focusBrushSizeProvider);
 
     return Container(
       color: const Color(0xFF1A1A1A),
@@ -18,28 +83,64 @@ class BlurToolPanel extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Visual blur preview strip
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: _BlurPreviewStrip(strength: blurStrength),
-            ),
-          ),
-
-          // Blur type selector
-          const Text('Blur type',
-              style: TextStyle(fontSize: 11, color: Colors.white54, letterSpacing: 0.5)),
-          const SizedBox(height: 8),
+          // Mode indicator
           Row(
             children: [
-              _BlurTypeChip(label: 'Portrait', icon: Icons.person_outline, isActive: true),
-              const SizedBox(width: 8),
-              _BlurTypeChip(label: 'Radial', icon: Icons.lens_blur_outlined, isActive: false),
-              const SizedBox(width: 8),
-              _BlurTypeChip(label: 'Linear', icon: Icons.linear_scale_outlined, isActive: false),
+              Icon(hasFocus ? Icons.brush : Icons.lens_blur,
+                  size: 15, color: AppTheme.primaryLight),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  hasFocus
+                      ? 'Subject painted — background will blur'
+                      : 'Brush over the subject to keep it sharp',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ),
+              if (hasFocus)
+                GestureDetector(
+                  onTap: n.clearFocus,
+                  child: const Text('Clear',
+                      style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+                ),
             ],
           ),
           const SizedBox(height: 14),
+
+          // Brush size for the subject mask
+          Row(
+            children: [
+              const SizedBox(
+                width: 70,
+                child: Text('Brush',
+                    style: TextStyle(fontSize: 12, color: Colors.white60)),
+              ),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 2,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                    activeTrackColor: AppTheme.primaryLight,
+                    inactiveTrackColor: Colors.white12,
+                    thumbColor: Colors.white,
+                  ),
+                  child: Slider(
+                    value: brushSize,
+                    min: 15,
+                    max: 90,
+                    onChanged: (v) =>
+                        ref.read(focusBrushSizeProvider.notifier).state = v,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 36,
+                child: Text('${brushSize.round()}px',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(fontSize: 11, color: Colors.white38)),
+              ),
+            ],
+          ),
 
           // Strength slider
           Row(
@@ -83,10 +184,12 @@ class BlurToolPanel extends ConsumerWidget {
             ],
           ),
 
-          const SizedBox(height: 10),
-          const Text(
-            'Portrait mode blurs the background behind the subject.',
-            style: TextStyle(fontSize: 11, color: Colors.white24),
+          const SizedBox(height: 8),
+          Text(
+            hasFocus
+                ? 'Everything outside the painted subject is blurred by the strength above.'
+                : 'No subject painted — a center-weighted blur is used instead.',
+            style: const TextStyle(fontSize: 11, color: Colors.white24),
             textAlign: TextAlign.center,
           ),
 
@@ -101,84 +204,6 @@ class BlurToolPanel extends ConsumerWidget {
                 ),
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BlurPreviewStrip extends StatelessWidget {
-  final double strength;
-  const _BlurPreviewStrip({required this.strength});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 200,
-      height: 36,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        gradient: LinearGradient(
-          colors: [
-            Colors.white.withOpacity(0.8),
-            Colors.white.withOpacity(0.8 - strength / 100 * 0.6),
-            Colors.white.withOpacity(0.8 - strength / 100 * 0.75),
-          ],
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.person, size: 20, color: Color(0xFF1565C0)),
-          const SizedBox(width: 8),
-          Text(
-            'Focus',
-            style: TextStyle(
-              fontSize: 12,
-              color: const Color(0xFF1565C0).withOpacity(
-                  1.0 - strength / 200),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BlurTypeChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isActive;
-  const _BlurTypeChip(
-      {required this.label, required this.icon, required this.isActive});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isActive
-            ? AppTheme.toolbarSelected
-            : Colors.white.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isActive ? AppTheme.primaryLight : Colors.transparent,
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon,
-              size: 14,
-              color: isActive ? Colors.white : Colors.white54),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                fontSize: 12,
-                color: isActive ? Colors.white : Colors.white54,
-              )),
         ],
       ),
     );
