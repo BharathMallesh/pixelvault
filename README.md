@@ -86,12 +86,17 @@ lib/
 
 ## 🔜 Phase 2 (Next)
 
-- [ ] Healing / spot removal brush
-- [ ] HSL color tuning per channel
-- [ ] Perspective fix tool
-- [ ] Background blur (bokeh)
-- [ ] Selective edit brush
-- [ ] Actual image saving to gallery (image package)
+- [x] HSL color tuning per channel — per-band hue/sat/lum grading with smooth membership weighting
+- [x] Perspective fix tool — keystone correction via inverse bilinear warp
+- [x] Background blur (bokeh) — center-weighted radial blur (subject in centre stays sharp)
+- [x] Actual image saving to gallery — real pixel pipeline + `gal` write to a `PixelVault` album
+- [ ] Healing / spot removal brush — UI marks spots; pixel inpainting not yet implemented (see TODO in `lib/utils/image_processor.dart`)
+- [ ] Selective edit brush — adjustments are still global, not masked
+- [ ] ML subject-aware bokeh — current blur is center-weighted, not segmentation-based
+
+> **Note on Background Blur:** the current implementation keeps the image centre
+> sharp and softens the edges radially. True subject-aware bokeh needs on-device
+> segmentation (e.g. a TFLite portrait mask) and is tracked as a follow-up.
 
 ---
 

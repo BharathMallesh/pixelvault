@@ -111,7 +111,7 @@ class _CropToolPanelState extends ConsumerState<CropToolPanel> {
                 child: SliderTheme(
                   data: SliderThemeData(
                     trackHeight: 2,
-                    thumbRadius: 8,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                     activeTrackColor: AppTheme.primaryLight,
                     inactiveTrackColor: Colors.white12,
                     thumbColor: Colors.white,

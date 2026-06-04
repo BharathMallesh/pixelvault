@@ -43,7 +43,7 @@ class AdjustmentSlider extends StatelessWidget {
             child: SliderTheme(
               data: SliderThemeData(
                 trackHeight: 2,
-                thumbRadius: 8,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                 activeTrackColor: isChanged
                     ? const Color(0xFF5E92F3)
                     : Colors.white30,

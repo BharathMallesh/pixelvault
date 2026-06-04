@@ -14,6 +14,7 @@ dependencies:
   image: ^4.1.7
   image_picker: ^1.0.7
   photo_manager: ^3.0.0
+  gal: ^2.3.0
 
   # Local storage
   sqflite: ^2.3.2
@@ -29,6 +30,7 @@ dependencies:
 
   # Permissions
   permission_handler: ^11.3.0
+  photo_manager_image_provider: ^2.2.0
 
 dev_dependencies:
   flutter_test:

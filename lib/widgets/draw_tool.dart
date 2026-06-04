@@ -224,7 +224,8 @@ class DrawToolPanel extends ConsumerWidget {
               Expanded(
                 child: SliderTheme(
                   data: SliderThemeData(
-                    trackHeight: 2, thumbRadius: 8,
+                    trackHeight: 2,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                     activeTrackColor: color,
                     inactiveTrackColor: Colors.white12,
                     thumbColor: Colors.white,

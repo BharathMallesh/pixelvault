@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
 
-// Stores heal brush strokes as a list of touch points
+// Stores heal brush strokes as a list of touch points.
+//
+// TODO(heal): These points are collected and previewed, but the pixel-level
+// spot removal is NOT yet implemented. To make the heal brush functional,
+// pass `healPointsProvider` into EditSettings (or a side channel) and add an
+// inpainting pass in ImageProcessor — e.g. for each HealPoint, sample a clean
+// neighbouring patch and blend it over the marked radius (a simple
+// Telea/nearest-source fill). Until then this tool is preview-only.
 class HealPoint {
   final double x; // 0.0 – 1.0 (normalized)
   final double y;
@@ -107,7 +114,7 @@ class HealToolPanel extends ConsumerWidget {
                 child: SliderTheme(
                   data: SliderThemeData(
                     trackHeight: 2,
-                    thumbRadius: 8,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                     activeTrackColor: AppTheme.primaryLight,
                     inactiveTrackColor: Colors.white12,
                     thumbColor: Colors.white,
