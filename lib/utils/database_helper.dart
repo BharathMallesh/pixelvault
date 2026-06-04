@@ -79,6 +79,15 @@ class DatabaseHelper {
         where: 'asset_id = ?', whereArgs: [assetId]);
   }
 
+  /// Distinct asset IDs that have at least one saved edit — used to flag the
+  /// "Edited" tab in the gallery.
+  Future<Set<String>> getEditedAssetIds() async {
+    final db = await database;
+    final rows =
+        await db.rawQuery('SELECT DISTINCT asset_id FROM edit_history');
+    return rows.map((r) => r['asset_id'] as String).toSet();
+  }
+
   // ── Presets ───────────────────────────────────────────────────────
 
   Future<void> savePreset(String id, String name, EditSettings settings) async {

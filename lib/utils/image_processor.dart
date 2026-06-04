@@ -205,7 +205,12 @@ class ImageProcessor {
       image = _applySelective(image, s);
     }
 
-    // 9. Sharpness
+    // 9. Dehaze (lift contrast + saturation to cut atmospheric haze)
+    if (s.dehaze > 0) {
+      image = _applyDehaze(image, s.dehaze / 100);
+    }
+
+    // 10. Sharpness
     if (s.sharpness > 0) {
       image = img.convolution(image, filter: [
         0, -s.sharpness / 200,  0,
@@ -214,7 +219,13 @@ class ImageProcessor {
       ], div: 1);
     }
 
-    // 10. Background blur. If the user painted a focus mask, keep that region
+    // 11. Noise reduction (light gaussian smoothing)
+    if (s.noiseReduction > 0) {
+      final r = (s.noiseReduction / 50).round().clamp(1, 3);
+      image = img.gaussianBlur(image, radius: r);
+    }
+
+    // 12. Background blur. If the user painted a focus mask, keep that region
     //     sharp and blur everything else; otherwise fall back to a
     //     center-weighted radial blur.
     if (s.blurStrength > 0) {
@@ -222,7 +233,7 @@ class ImageProcessor {
           image, s.blurStrength / 100, s.focusMask);
     }
 
-    // 11. Vignette
+    // 13. Vignette
     if (s.vignette > 0) {
       image = _applyVignette(image, s.vignette / 100);
     }
@@ -236,6 +247,31 @@ class ImageProcessor {
     for (final pixel in dst) {
       pixel.r = (pixel.r + amount).clamp(0, 255);
       pixel.b = (pixel.b - amount).clamp(0, 255);
+    }
+    return dst;
+  }
+
+  // ── Dehaze ─────────────────────────────────────────────────────────
+  // Haze flattens contrast and washes out color. Counter it by stretching
+  // contrast around mid-gray and lifting saturation, scaled by [amount].
+  static img.Image _applyDehaze(img.Image src, double amount) {
+    final contrast = 1.0 + amount * 0.5;       // up to +50% contrast
+    final satScale = 1.0 + amount * 0.4;       // up to +40% saturation
+    final dst = img.Image.from(src);
+    for (final pixel in dst) {
+      double r = pixel.r.toDouble(), g = pixel.g.toDouble(), b = pixel.b.toDouble();
+      // Contrast around 128
+      r = (r - 128) * contrast + 128;
+      g = (g - 128) * contrast + 128;
+      b = (b - 128) * contrast + 128;
+      // Saturation around luminance
+      final lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = lum + (r - lum) * satScale;
+      g = lum + (g - lum) * satScale;
+      b = lum + (b - lum) * satScale;
+      pixel.r = r.clamp(0, 255).round();
+      pixel.g = g.clamp(0, 255).round();
+      pixel.b = b.clamp(0, 255).round();
     }
     return dst;
   }

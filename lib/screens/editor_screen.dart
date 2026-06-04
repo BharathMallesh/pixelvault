@@ -1,5 +1,7 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -34,6 +36,10 @@ class EditorScreen extends ConsumerStatefulWidget {
 }
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
+  // Wraps the photo + overlay stack so we can rasterize text/draw/stickers
+  // into the saved image. Without this, overlays were preview-only.
+  final GlobalKey _captureKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +50,26 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ref.read(editorProvider.notifier)
           .loadPhoto(widget.assetId, restored: restored);
     });
+  }
+
+  bool get _hasOverlays =>
+      ref.read(textOverlaysProvider).isNotEmpty ||
+      ref.read(stickerOverlaysProvider).isNotEmpty ||
+      ref.read(drawStrokesProvider).isNotEmpty;
+
+  /// Capture the rendered photo+overlay stack as a PNG at high resolution.
+  /// Used at save time so text/drawings/stickers appear in the exported file.
+  Future<Uint8List?> _captureComposite() async {
+    try {
+      final boundary = _captureKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final bd = await image.toByteData(format: ui.ImageByteFormat.png);
+      return bd?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -60,33 +86,36 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           Expanded(
             child: LayoutBuilder(builder: (ctx, constraints) {
               final size = Size(constraints.maxWidth, constraints.maxHeight);
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Base photo
-                  GestureDetector(
-                    onLongPressStart: (_) => n.toggleBeforeAfter(true),
-                    onLongPressEnd: (_) => n.toggleBeforeAfter(false),
-                    child: _PhotoPreview(
-                        assetId: widget.assetId, showBefore: state.showBeforeAfter),
-                  ),
-                  // Draw canvas
-                  if (state.activeTool == EditorTool.draw)
-                    DrawCanvas(canvasSize: size),
-                  // Heal overlay
-                  if (state.activeTool == EditorTool.heal)
-                    HealToolOverlay(imageSize: size),
-                  // Background-blur focus brush overlay
-                  if (state.activeTool == EditorTool.blur)
-                    FocusToolOverlay(imageSize: size),
-                  // Selective edit brush overlay
-                  if (state.activeTool == EditorTool.selective)
-                    SelectiveToolOverlay(imageSize: size),
-                  // Text overlays (always visible)
-                  TextOverlayCanvas(canvasSize: size),
-                  // Sticker overlays (always visible)
-                  StickerCanvas(canvasSize: size),
-                ],
+              return RepaintBoundary(
+                key: _captureKey,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Base photo
+                    GestureDetector(
+                      onLongPressStart: (_) => n.toggleBeforeAfter(true),
+                      onLongPressEnd: (_) => n.toggleBeforeAfter(false),
+                      child: _PhotoPreview(
+                          assetId: widget.assetId, showBefore: state.showBeforeAfter),
+                    ),
+                    // Draw canvas
+                    if (state.activeTool == EditorTool.draw)
+                      DrawCanvas(canvasSize: size),
+                    // Heal overlay
+                    if (state.activeTool == EditorTool.heal)
+                      HealToolOverlay(imageSize: size),
+                    // Background-blur focus brush overlay
+                    if (state.activeTool == EditorTool.blur)
+                      FocusToolOverlay(imageSize: size),
+                    // Selective edit brush overlay
+                    if (state.activeTool == EditorTool.selective)
+                      SelectiveToolOverlay(imageSize: size),
+                    // Text overlays (always visible)
+                    TextOverlayCanvas(canvasSize: size),
+                    // Sticker overlays (always visible)
+                    StickerCanvas(canvasSize: size),
+                  ],
+                ),
               );
             }),
           ),
@@ -207,6 +236,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final n = ref.read(editorProvider.notifier);
     final settings = ref.read(editorProvider).current;
     final appSettings = ref.read(settingsProvider);
+    final hasOverlays = _hasOverlays;
+
+    // If overlays exist, switch to the filter tab so no brush-tint overlay is
+    // captured, and let the frame settle before snapshotting.
+    if (hasOverlays && ref.read(editorProvider).activeTool != EditorTool.filter) {
+      n.setTool(EditorTool.filter);
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+
     n.setSaving(true);
     try {
       // Ensure gallery write access before spending time on processing.
@@ -215,14 +253,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         return;
       }
 
-      // Process the original asset and write it to the gallery, honoring the
-      // user's export format / JPEG quality from Settings.
-      await PhotoSaver.processAndSaveAsset(
-        assetId: widget.assetId,
-        settings: settings,
-        exportFormat: appSettings.exportFormat,
-        jpegQuality: appSettings.jpegQuality,
-      );
+      if (hasOverlays) {
+        // Text/draw/sticker overlays are Flutter widgets, not part of the photo
+        // bytes, so rasterize the rendered composite and save that.
+        final composite = await _captureComposite();
+        if (composite == null) throw Exception('Could not capture overlays');
+        await PhotoSaver.saveBytes(composite, asPng: true);
+        // Record history so this photo shows in the "Edited" tab.
+        try { await DatabaseHelper().saveEditHistory(widget.assetId, settings); }
+        catch (_) {}
+      } else {
+        // No overlays: full-resolution pipeline straight from the original.
+        await PhotoSaver.processAndSaveAsset(
+          assetId: widget.assetId,
+          settings: settings,
+          exportFormat: appSettings.exportFormat,
+          jpegQuality: appSettings.jpegQuality,
+        );
+      }
 
       if (mounted) {
         final fmt = appSettings.exportFormat.toUpperCase();

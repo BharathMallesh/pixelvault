@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../models/photo_model.dart';
+import '../utils/database_helper.dart';
 
 enum GalleryTab { all, edited, batch }
 
@@ -93,6 +94,9 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
         end: 300,
       );
 
+      // Photos with a saved edit appear in the "Edited" tab.
+      final editedIds = await DatabaseHelper().getEditedAssetIds();
+
       final photos = assets.map((asset) {
         return PhotoModel(
           id: asset.id,
@@ -101,6 +105,7 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
           createdAt: asset.createDateTime,
           width: asset.width,
           height: asset.height,
+          isEdited: editedIds.contains(asset.id),
         );
       }).toList();
 
