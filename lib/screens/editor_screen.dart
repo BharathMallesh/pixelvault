@@ -366,6 +366,12 @@ class _PhotoPreviewState extends ConsumerState<_PhotoPreview> {
   Future<void> _loadBase() async {
     final asset = await AssetEntity.fromId(widget.assetId);
     if (asset == null) return;
+    // Publish the real image aspect ratio so the crop overlay can map its
+    // rectangle to the letterboxed photo rect (BoxFit.contain).
+    if (asset.width > 0 && asset.height > 0) {
+      ref.read(editorImageAspectProvider.notifier).state =
+          asset.width / asset.height;
+    }
     // A ~1280px thumbnail keeps preview processing fast and responsive.
     final bytes = await asset.thumbnailDataWithSize(
         const ThumbnailSize(1280, 1280), quality: 90);

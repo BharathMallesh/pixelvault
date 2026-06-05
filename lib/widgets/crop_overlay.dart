@@ -4,9 +4,15 @@ import '../providers/editor_provider.dart';
 import '../models/edit_settings.dart';
 import '../theme/app_theme.dart';
 
+/// Aspect ratio (width/height) of the photo currently in the editor, set by
+/// the preview once the image loads. The crop overlay uses it to map its
+/// rectangle from the letterboxed display area to image-relative coordinates.
+final editorImageAspectProvider = StateProvider<double?>((ref) => null);
+
 /// Interactive crop rectangle drawn over the photo. Drag the corner handles to
 /// resize, or the interior to move. The selection is stored as a normalized
-/// [CropRect] (0..1) in the editor settings, which the processor applies.
+/// [CropRect] (0..1 of the IMAGE, not the screen) in the editor settings, which
+/// the processor applies directly.
 ///
 /// [aspectRatio] of 0 = free; otherwise width/height is locked to that ratio.
 class CropOverlay extends ConsumerWidget {
@@ -17,6 +23,7 @@ class CropOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final stored = ref.watch(editorProvider.select((s) => s.current.cropRect));
+    final imageAspect = ref.watch(editorImageAspectProvider);
     const initial = CropRect(left: 0.05, top: 0.05, right: 0.95, bottom: 0.95);
     // Seed a starting crop box the first time the tool is opened so there is
     // something to drag (without adding an undo step).
@@ -28,6 +35,7 @@ class CropOverlay extends ConsumerWidget {
     final crop = stored ?? initial;
     return _CropEditor(
       canvasSize: canvasSize,
+      imageAspect: imageAspect,
       aspectRatio: aspectRatio,
       crop: crop,
       onChanged: (c) => ref.read(editorProvider.notifier).setCropLive(c),
@@ -40,12 +48,14 @@ enum _Handle { none, move, tl, tr, bl, br }
 
 class _CropEditor extends StatefulWidget {
   final Size canvasSize;
-  final double aspectRatio;
-  final CropRect crop;
+  final double? imageAspect; // image width/height; null until known
+  final double aspectRatio; // selected crop ratio (0 = free)
+  final CropRect crop; // image-normalized
   final ValueChanged<CropRect> onChanged;
   final VoidCallback onChangeEnd;
   const _CropEditor({
     required this.canvasSize,
+    required this.imageAspect,
     required this.aspectRatio,
     required this.crop,
     required this.onChanged,
@@ -59,27 +69,55 @@ class _CropEditor extends StatefulWidget {
 class _CropEditorState extends State<_CropEditor> {
   _Handle _active = _Handle.none;
   static const double _hit = 28; // px hit-radius for corner handles
-  static const double _minSize = 0.08; // min crop fraction
+  static const double _minSize = 0.08; // min crop fraction (of image)
 
   CropRect get _c => widget.crop;
-  double get _w => widget.canvasSize.width;
-  double get _h => widget.canvasSize.height;
 
-  Offset _px(double nx, double ny) => Offset(nx * _w, ny * _h);
+  /// The photo's displayed rectangle inside the canvas (BoxFit.contain). The
+  /// crop selection is drawn and dragged within this rect, so coordinates map
+  /// 1:1 to image fractions regardless of letterboxing.
+  Rect get _photoRect {
+    final cw = widget.canvasSize.width, ch = widget.canvasSize.height;
+    final a = widget.imageAspect;
+    if (a == null || a <= 0) return Rect.fromLTWH(0, 0, cw, ch);
+    final canvasAspect = cw / ch;
+    double w, h;
+    if (a > canvasAspect) {
+      // image is wider than canvas -> full width, letterbox top/bottom
+      w = cw;
+      h = cw / a;
+    } else {
+      h = ch;
+      w = ch * a;
+    }
+    final left = (cw - w) / 2, top = (ch - h) / 2;
+    return Rect.fromLTWH(left, top, w, h);
+  }
+
+  // image-normalized (0..1) -> screen pixel inside the photo rect
+  Offset _toPx(double nx, double ny) {
+    final r = _photoRect;
+    return Offset(r.left + nx * r.width, r.top + ny * r.height);
+  }
+
+  Rect _cropPxRect() {
+    final tl = _toPx(_c.left, _c.top);
+    final br = _toPx(_c.right, _c.bottom);
+    return Rect.fromLTRB(tl.dx, tl.dy, br.dx, br.dy);
+  }
 
   _Handle _hitTest(Offset p) {
+    final r = _cropPxRect();
     final corners = {
-      _Handle.tl: _px(_c.left, _c.top),
-      _Handle.tr: _px(_c.right, _c.top),
-      _Handle.bl: _px(_c.left, _c.bottom),
-      _Handle.br: _px(_c.right, _c.bottom),
+      _Handle.tl: r.topLeft,
+      _Handle.tr: r.topRight,
+      _Handle.bl: r.bottomLeft,
+      _Handle.br: r.bottomRight,
     };
     for (final e in corners.entries) {
       if ((p - e.value).distance <= _hit) return e.key;
     }
-    final rect = Rect.fromLTRB(
-        _c.left * _w, _c.top * _h, _c.right * _w, _c.bottom * _h);
-    if (rect.contains(p)) return _Handle.move;
+    if (r.contains(p)) return _Handle.move;
     return _Handle.none;
   }
 
@@ -89,8 +127,10 @@ class _CropEditorState extends State<_CropEditor> {
 
   void _onUpdate(DragUpdateDetails d) {
     if (_active == _Handle.none) return;
-    final dx = d.delta.dx / _w;
-    final dy = d.delta.dy / _h;
+    final pr = _photoRect;
+    // Convert pixel delta to image-normalized delta.
+    final dx = d.delta.dx / pr.width;
+    final dy = d.delta.dy / pr.height;
     double l = _c.left, t = _c.top, r = _c.right, b = _c.bottom;
 
     switch (_active) {
@@ -121,11 +161,12 @@ class _CropEditorState extends State<_CropEditor> {
         return;
     }
 
-    // Lock aspect ratio (in pixel space) by adjusting the moved edge.
+    // Lock the crop aspect ratio (in real pixels) when one is selected.
     if (widget.aspectRatio > 0 && _active != _Handle.move) {
-      final targetWpx = (r - l) * _w;
+      final pr = _photoRect;
+      final targetWpx = (r - l) * pr.width;
       final neededHpx = targetWpx / widget.aspectRatio;
-      final neededH = (neededHpx / _h).clamp(_minSize, 1.0);
+      final neededH = (neededHpx / pr.height).clamp(_minSize, 1.0);
       if (_active == _Handle.tl || _active == _Handle.tr) {
         t = (b - neededH).clamp(0.0, b - _minSize);
       } else {
@@ -148,7 +189,7 @@ class _CropEditorState extends State<_CropEditor> {
       onPanUpdate: _onUpdate,
       onPanEnd: _onEnd,
       child: CustomPaint(
-        painter: _CropPainter(_c),
+        painter: _CropPainter(_cropPxRect()),
         size: Size.infinite,
       ),
     );
@@ -156,15 +197,11 @@ class _CropEditorState extends State<_CropEditor> {
 }
 
 class _CropPainter extends CustomPainter {
-  final CropRect c;
-  _CropPainter(this.c);
+  final Rect rect;
+  _CropPainter(this.rect);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTRB(
-        c.left * size.width, c.top * size.height,
-        c.right * size.width, c.bottom * size.height);
-
     // Dim everything outside the crop rect.
     final dim = Paint()..color = Colors.black.withOpacity(0.55);
     final outer = Path()..addRect(Offset.zero & size);
@@ -203,5 +240,5 @@ class _CropPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CropPainter old) => old.c != c;
+  bool shouldRepaint(_CropPainter old) => old.rect != rect;
 }
