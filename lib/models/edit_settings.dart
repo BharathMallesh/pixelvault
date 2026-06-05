@@ -214,6 +214,17 @@ class CropRect {
     required this.bottom,
   });
 
+  @override
+  bool operator ==(Object other) =>
+      other is CropRect &&
+      other.left == left &&
+      other.top == top &&
+      other.right == right &&
+      other.bottom == bottom;
+
+  @override
+  int get hashCode => Object.hash(left, top, right, bottom);
+
   Map<String, double> toMap() =>
       {'left': left, 'top': top, 'right': right, 'bottom': bottom};
 

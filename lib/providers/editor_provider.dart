@@ -182,6 +182,8 @@ class EditorNotifier extends StateNotifier<EditorState> {
 
   // Crop
   void setCrop(CropRect rect)    => updateSetting(state.current.copyWith(cropRect: rect));
+  // Live crop drag (no history per move); call commitHistory() on drag end.
+  void setCropLive(CropRect rect) => updateLive(state.current.copyWith(cropRect: rect));
   void clearCrop()               => updateSetting(state.current.copyWith(clearCrop: true));
 
   // Flip / rotate

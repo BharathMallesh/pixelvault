@@ -15,6 +15,7 @@ import '../widgets/adjustment_slider.dart';
 import '../widgets/filter_strip.dart';
 import '../widgets/hsl_panel.dart';
 import '../widgets/crop_tool.dart';
+import '../widgets/crop_overlay.dart';
 import '../widgets/heal_tool.dart';
 import '../widgets/perspective_tool.dart';
 import '../widgets/blur_tool.dart';
@@ -120,6 +121,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     // Selective edit brush overlay
                     if (state.activeTool == EditorTool.selective)
                       SelectiveToolOverlay(imageSize: size),
+                    // Interactive crop rectangle
+                    if (state.activeTool == EditorTool.crop)
+                      CropOverlay(
+                        canvasSize: size,
+                        aspectRatio: ref.watch(cropAspectRatioProvider),
+                      ),
                     // Text overlays (always visible)
                     TextOverlayCanvas(canvasSize: size),
                     // Sticker overlays (always visible)

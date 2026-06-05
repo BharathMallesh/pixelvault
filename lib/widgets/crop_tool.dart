@@ -4,6 +4,9 @@ import '../providers/editor_provider.dart';
 import '../models/edit_settings.dart';
 import '../theme/app_theme.dart';
 
+// Currently selected crop aspect ratio (0 = free). Shared with CropOverlay.
+final cropAspectRatioProvider = StateProvider<double>((ref) => 0.0);
+
 // Preset aspect ratios
 const _ratios = [
   (label: 'Free',  ratio: 0.0),
@@ -15,19 +18,31 @@ const _ratios = [
   (label: '3:2',   ratio: 3/2),
 ];
 
-class CropToolPanel extends ConsumerStatefulWidget {
+class CropToolPanel extends ConsumerWidget {
   const CropToolPanel({super.key});
-  @override
-  ConsumerState<CropToolPanel> createState() => _CropToolPanelState();
-}
 
-class _CropToolPanelState extends ConsumerState<CropToolPanel> {
-  double _selectedRatio = 0.0;
+  // Build a centered crop rect matching [ratio] (in canvas-normalized space).
+  // ratio = 0 -> a roomy default box. Otherwise fit the largest centered box
+  // of that aspect inside the frame (assuming a square-ish preview area).
+  CropRect _rectForRatio(double ratio) {
+    if (ratio <= 0) {
+      return const CropRect(left: 0.05, top: 0.05, right: 0.95, bottom: 0.95);
+    }
+    double w = 0.9, h = 0.9;
+    if (ratio >= 1) {
+      h = (w / ratio).clamp(0.1, 0.9);
+    } else {
+      w = (h * ratio).clamp(0.1, 0.9);
+    }
+    final l = (1 - w) / 2, t = (1 - h) / 2;
+    return CropRect(left: l, top: t, right: l + w, bottom: t + h);
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final n = ref.read(editorProvider.notifier);
     final state = ref.watch(editorProvider);
+    final selectedRatio = ref.watch(cropAspectRatioProvider);
 
     return Container(
       color: const Color(0xFF1A1A1A),
@@ -36,24 +51,21 @@ class _CropToolPanelState extends ConsumerState<CropToolPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Aspect ratio chips
-          const Text('Aspect ratio',
-              style: TextStyle(fontSize: 11, color: Colors.white54, letterSpacing: 0.5)),
+          const Text('Aspect ratio · drag the box on the photo to crop',
+              style: TextStyle(fontSize: 11, color: Colors.white54, letterSpacing: 0.3)),
           const SizedBox(height: 8),
           SizedBox(
             height: 34,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: _ratios.map((r) {
-                final isActive = _selectedRatio == r.ratio;
+                final isActive = selectedRatio == r.ratio;
                 return GestureDetector(
                   onTap: () {
-                    setState(() => _selectedRatio = r.ratio);
-                    // Apply a default full crop with chosen ratio
-                    if (r.ratio == 0.0) {
-                      n.clearCrop();
-                    } else {
-                      n.setCrop(const CropRect(left: 0, top: 0, right: 1, bottom: 1));
-                    }
+                    ref.read(cropAspectRatioProvider.notifier).state = r.ratio;
+                    // Seed a centered crop box of the chosen shape (and let
+                    // the user fine-tune by dragging the handles).
+                    n.setCrop(_rectForRatio(r.ratio));
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
@@ -139,7 +151,10 @@ class _CropToolPanelState extends ConsumerState<CropToolPanel> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: GestureDetector(
-                onTap: n.clearCrop,
+                onTap: () {
+                  n.clearCrop();
+                  ref.read(cropAspectRatioProvider.notifier).state = 0.0;
+                },
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
