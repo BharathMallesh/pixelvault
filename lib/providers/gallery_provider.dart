@@ -78,6 +78,12 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
       final albums = await PhotoManager.getAssetPathList(
         type: RequestType.image,
         onlyAll: true,
+        // Newest first, so a photo you just saved appears at the top.
+        filterOption: FilterOptionGroup(
+          orders: const [
+            OrderOption(type: OrderOptionType.createDate, asc: false),
+          ],
+        ),
       );
 
       if (albums.isEmpty) {
@@ -94,18 +100,21 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
         end: 300,
       );
 
-      // Photos with a saved edit appear in the "Edited" tab.
+      // The "Edited" tab shows both the source photos we have edit history for
+      // and the edited copies PixelVault saved (named "pixelvault_*").
       final editedIds = await DatabaseHelper().getEditedAssetIds();
 
       final photos = assets.map((asset) {
+        final title = asset.title ?? 'Photo';
+        final isPixelVaultOutput = title.startsWith('pixelvault_');
         return PhotoModel(
           id: asset.id,
           path: asset.id,
-          name: asset.title ?? 'Photo',
+          name: title,
           createdAt: asset.createDateTime,
           width: asset.width,
           height: asset.height,
-          isEdited: editedIds.contains(asset.id),
+          isEdited: isPixelVaultOutput || editedIds.contains(asset.id),
         );
       }).toList();
 
