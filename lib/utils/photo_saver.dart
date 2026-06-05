@@ -38,12 +38,31 @@ class PhotoSaver {
     if (originBytes == null) throw Exception('Could not read photo data');
 
     final asPng = exportFormat.toLowerCase() == 'png';
-    final Uint8List processed = await ImageProcessor.processBytes(
-      inputBytes: originBytes,
-      settings: settings,
-      jpegQuality: jpegQuality,
-      asPng: asPng,
-    );
+    // Full-resolution decode/process/encode runs on a background isolate so it
+    // never freezes the UI.
+    Uint8List processed;
+    try {
+      processed = await ImageProcessor.processBytesIsolated(
+        inputBytes: originBytes,
+        settings: settings,
+        jpegQuality: jpegQuality,
+        asPng: asPng,
+      );
+    } catch (_) {
+      // The original may be a format the Dart image package can't decode
+      // (HEIC / camera RAW). Fall back to a full-size JPEG the OS hands us.
+      final fallback = await asset.thumbnailDataWithSize(
+        ThumbnailSize(asset.width.clamp(1, 4096), asset.height.clamp(1, 4096)),
+        quality: 95,
+      );
+      if (fallback == null) rethrow;
+      processed = await ImageProcessor.processBytesIsolated(
+        inputBytes: fallback,
+        settings: settings,
+        jpegQuality: jpegQuality,
+        asPng: asPng,
+      );
+    }
 
     await _writeToGallery(processed, asPng: asPng);
 

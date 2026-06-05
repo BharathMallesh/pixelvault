@@ -150,6 +150,30 @@ It is physically incapable of sending any data over the network.
 - [x] Collage border — adjustable width + 5 color options
 - [x] Custom preset saving — save any edit as a named reusable preset
 - [x] Presets screen — apply, delete, view summary of saved presets
-- [x] 10-tool editor tab bar (Filter → Sticker)
+- [x] 11-tool editor tab bar (Filter → Sticker, incl. Curves)
 - [x] Before/after compare (hold photo)
 - [x] Edit history with undo/redo throughout all tools
+
+---
+
+## ✅ Phase 4 — Pro tools & performance
+
+- [x] **Tone Curves** — draggable 5-point RGB master curve (LUT-based), with live preview
+- [x] **Non-blocking save** — full-resolution decode/process/encode runs on a background isolate, so saving never freezes the UI
+- [x] **Full-resolution overlay export** — text/drawing/stickers are composited onto the photo at its native resolution via a dart:ui canvas (previously capped at screen resolution)
+- [x] **Non-destructive re-edit** — reopening a photo restores its last saved edit (all settings, incl. curve) so you can keep tweaking
+- [x] **Interactive crop** — draggable crop box mapped to the real photo rect (handles letterboxing correctly)
+- [x] **Wider input formats** — JPEG, PNG, WebP, TIFF, PSD, BMP, GIF decode natively (via the `image` package); HEIC / RAW originals fall back to a full-size OS-provided JPEG so they still open and save
+
+---
+
+## ⚠️ Known limitations (honest)
+
+These are genuine gaps vs. apps like Snapseed / Lightroom:
+
+- **No native HEIC / camera-RAW decoding** — handled via an OS JPEG fallback, not true RAW development. No exposure recovery from RAW data.
+- **CPU pixel pipeline, not GPU** — adjustments run as Dart pixel loops (the live preview uses a downscaled copy for responsiveness; the GPU is only used for the canvas/overlay compositing). Very large images are slower than shader-based editors.
+- **Healing is patch-clone**, not content-aware fill — visible on complex textures.
+- **Background blur is manual/center-weighted**, not ML subject segmentation.
+- **Selective edits are brush+feather masks** — no luminosity masks or gradient/radial filters.
+- True **GPU acceleration** and **on-device ML (portrait masks)** would require heavy native/TFLite dependencies; deliberately omitted to keep the app lightweight and fully offline (no INTERNET permission).

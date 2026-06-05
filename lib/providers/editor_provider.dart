@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/edit_settings.dart';
 import '../models/brush_mask.dart';
 
-enum EditorTool { filter, adjust, hsl, crop, heal, perspective, blur, selective, text, draw, sticker }
+enum EditorTool { filter, adjust, hsl, curves, crop, heal, perspective, blur, selective, text, draw, sticker }
 
 class EditorState {
   final String? assetId;
@@ -155,6 +155,11 @@ class EditorNotifier extends StateNotifier<EditorState> {
 
   // Blur
   void setBlurStrength(double v) => updateSetting(state.current.copyWith(blurStrength: v));
+
+  // Tone curve. Live drag (no per-move history); commit on release.
+  void setCurveLive(List<CurvePoint> pts) => updateLive(state.current.copyWith(curve: pts));
+  void setCurve(List<CurvePoint> pts) => updateSetting(state.current.copyWith(curve: pts));
+  void resetCurve() => updateSetting(state.current.copyWith(curve: const []));
 
   // ── Brush masks ───────────────────────────────────────────────────
   // Heal: stream dabs live, clear all. Call commitHistory() on stroke end.

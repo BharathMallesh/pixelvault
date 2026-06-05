@@ -47,6 +47,10 @@ class EditSettings {
   // Phase 2 — Background blur strength (0 = off)
   final double blurStrength;
 
+  // Tone curve control points (normalized 0..1, x ascending). Empty or a plain
+  // diagonal [(0,0),(1,1)] means no change. Applied to the RGB master channel.
+  final List<CurvePoint> curve;
+
   // Phase 2 — Brush masks (resolution-independent, normalized dabs)
   // Spots to clone-heal:
   final BrushMask healMask;
@@ -96,6 +100,8 @@ class EditSettings {
     this.perspectiveHorizontal = 0,
     // Blur
     this.blurStrength = 0,
+    // Tone curve
+    this.curve = const [],
     // Brush masks
     this.healMask = const BrushMask(),
     this.focusMask = const BrushMask(),
@@ -122,11 +128,21 @@ class EditSettings {
       hslBlueHue == 0 && hslBlueSat == 0 && hslBlueLum == 0 &&
       perspectiveVertical == 0 && perspectiveHorizontal == 0 &&
       blurStrength == 0 && rotation == 0 &&
+      _curveIsIdentity &&
       healMask.isEmpty && focusMask.isEmpty && selectiveMask.isEmpty &&
       selBrightness == 0 && selContrast == 0 &&
       selSaturation == 0 && selWarmth == 0 &&
       !flipHorizontal && !flipVertical &&
       cropRect == null && activeFilter == null;
+
+  // A curve does nothing if it's empty or a straight 0,0 -> 1,1 diagonal.
+  bool get _curveIsIdentity {
+    if (curve.isEmpty) return true;
+    for (final p in curve) {
+      if ((p.x - p.y).abs() > 0.001) return false;
+    }
+    return true;
+  }
 
   EditSettings copyWith({
     double? brightness, double? contrast, double? saturation,
@@ -141,6 +157,7 @@ class EditSettings {
     double? hslPurpleHue, double? hslPurpleSat, double? hslPurpleLum,
     double? perspectiveVertical, double? perspectiveHorizontal,
     double? blurStrength,
+    List<CurvePoint>? curve,
     BrushMask? healMask, BrushMask? focusMask, BrushMask? selectiveMask,
     double? selBrightness, double? selContrast,
     double? selSaturation, double? selWarmth,
@@ -183,6 +200,7 @@ class EditSettings {
       perspectiveVertical: perspectiveVertical ?? this.perspectiveVertical,
       perspectiveHorizontal: perspectiveHorizontal ?? this.perspectiveHorizontal,
       blurStrength: blurStrength ?? this.blurStrength,
+      curve: curve ?? this.curve,
       healMask: healMask ?? this.healMask,
       focusMask: focusMask ?? this.focusMask,
       selectiveMask: selectiveMask ?? this.selectiveMask,
@@ -199,6 +217,24 @@ class EditSettings {
   }
 
   static const EditSettings defaults = EditSettings();
+}
+
+/// A control point on the tone curve, normalized 0..1 (x = input level,
+/// y = output level). y is inverted from screen space (1 = brightest).
+class CurvePoint {
+  final double x;
+  final double y;
+  const CurvePoint(this.x, this.y);
+
+  Map<String, double> toMap() => {'x': x, 'y': y};
+  static CurvePoint fromMap(Map<String, dynamic> m) =>
+      CurvePoint((m['x'] as num).toDouble(), (m['y'] as num).toDouble());
+
+  @override
+  bool operator ==(Object other) =>
+      other is CurvePoint && other.x == x && other.y == y;
+  @override
+  int get hashCode => Object.hash(x, y);
 }
 
 class CropRect {

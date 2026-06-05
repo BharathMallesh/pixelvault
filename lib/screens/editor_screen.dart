@@ -1,7 +1,5 @@
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -9,11 +7,13 @@ import '../providers/editor_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/photo_saver.dart';
 import '../utils/image_processor.dart';
+import '../utils/overlay_compositor.dart';
 import '../utils/database_helper.dart';
 import 'settings_screen.dart';
 import '../widgets/adjustment_slider.dart';
 import '../widgets/filter_strip.dart';
 import '../widgets/hsl_panel.dart';
+import '../widgets/curves_tool.dart';
 import '../widgets/crop_tool.dart';
 import '../widgets/crop_overlay.dart';
 import '../widgets/heal_tool.dart';
@@ -40,6 +40,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   // Wraps the photo + overlay stack so we can rasterize text/draw/stickers
   // into the saved image. Without this, overlays were preview-only.
   final GlobalKey _captureKey = GlobalKey();
+  // The preview area size overlays were laid out in (for full-res compositing).
+  Size _canvasSize = Size.zero;
 
   @override
   void initState() {
@@ -68,20 +70,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ref.read(stickerOverlaysProvider).isNotEmpty ||
       ref.read(drawStrokesProvider).isNotEmpty;
 
-  /// Capture the rendered photo+overlay stack as a PNG at high resolution.
-  /// Used at save time so text/drawings/stickers appear in the exported file.
-  Future<Uint8List?> _captureComposite() async {
-    try {
-      final boundary = _captureKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null) return null;
-      final image = await boundary.toImage(pixelRatio: 3.0);
-      final bd = await image.toByteData(format: ui.ImageByteFormat.png);
-      return bd?.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,6 +85,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           Expanded(
             child: LayoutBuilder(builder: (ctx, constraints) {
               final size = Size(constraints.maxWidth, constraints.maxHeight);
+              _canvasSize = size;
               return RepaintBoundary(
                 key: _captureKey,
                 child: Stack(
@@ -238,6 +227,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       case EditorTool.filter:      return 'Filters';
       case EditorTool.adjust:      return 'Adjust';
       case EditorTool.hsl:         return 'Color (HSL)';
+      case EditorTool.curves:      return 'Curves';
       case EditorTool.crop:        return 'Crop & Rotate';
       case EditorTool.heal:        return 'Healing Brush';
       case EditorTool.perspective: return 'Perspective';
@@ -255,13 +245,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final appSettings = ref.read(settingsProvider);
     final hasOverlays = _hasOverlays;
 
-    // If overlays exist, switch to the filter tab so no brush-tint overlay is
-    // captured, and let the frame settle before snapshotting.
-    if (hasOverlays && ref.read(editorProvider).activeTool != EditorTool.filter) {
-      n.setTool(EditorTool.filter);
-      await Future.delayed(const Duration(milliseconds: 120));
-    }
-
     n.setSaving(true);
     try {
       // Ensure gallery write access before spending time on processing.
@@ -271,10 +254,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       }
 
       if (hasOverlays) {
-        // Text/draw/sticker overlays are Flutter widgets, not part of the photo
-        // bytes, so rasterize the rendered composite and save that.
-        final composite = await _captureComposite();
-        if (composite == null) throw Exception('Could not capture overlays');
+        // Process the photo at full resolution (off the UI thread), then burn
+        // the text/draw/sticker overlays in at that same full resolution — no
+        // longer a screen-resolution screenshot.
+        final asset = await AssetEntity.fromId(widget.assetId);
+        final origin = await asset?.originBytes;
+        if (origin == null) throw Exception('Could not read photo data');
+        final processed = await ImageProcessor.processBytesIsolated(
+          inputBytes: origin, settings: settings, jpegQuality: appSettings.jpegQuality,
+        );
+        final composite = await OverlayCompositor.compose(
+          photoBytes: processed,
+          canvasSize: _canvasSize,
+          strokes: ref.read(drawStrokesProvider),
+          texts: ref.read(textOverlaysProvider),
+          stickers: ref.read(stickerOverlaysProvider),
+        );
         await PhotoSaver.saveBytes(composite, asPng: true);
         // Record history so this photo shows in the "Edited" tab.
         try { await DatabaseHelper().saveEditHistory(widget.assetId, settings); }
@@ -444,6 +439,7 @@ class _ToolTabBar extends StatelessWidget {
       (EditorTool.filter,      Icons.auto_awesome_outlined,  'Filter'),
       (EditorTool.adjust,      Icons.tune_outlined,          'Adjust'),
       (EditorTool.hsl,         Icons.palette_outlined,       'Color'),
+      (EditorTool.curves,      Icons.show_chart,             'Curves'),
       (EditorTool.crop,        Icons.crop_outlined,          'Crop'),
       (EditorTool.heal,        Icons.healing_outlined,       'Heal'),
       (EditorTool.perspective, Icons.grid_3x3_outlined,      'Persp.'),
@@ -503,6 +499,7 @@ class _ToolPanel extends ConsumerWidget {
       case EditorTool.filter:      return const SizedBox(height: 6);
       case EditorTool.adjust:      return _AdjustPanel(s: state.current, n: n);
       case EditorTool.hsl:         return const HslPanel();
+      case EditorTool.curves:      return const CurvesToolPanel();
       case EditorTool.crop:        return const CropToolPanel();
       case EditorTool.heal:        return const HealToolPanel();
       case EditorTool.perspective: return const PerspectiveToolPanel();

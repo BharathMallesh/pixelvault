@@ -150,6 +150,7 @@ class DatabaseHelper {
         'perspectiveVertical': s.perspectiveVertical,
         'perspectiveHorizontal': s.perspectiveHorizontal,
         'blurStrength': s.blurStrength,
+        'curve': s.curve.map((c) => c.toMap()).toList(),
         // Brush masks
         'healMask': s.healMask.dabs.map((d) => d.toMap()).toList(),
         'focusMask': s.focusMask.dabs.map((d) => d.toMap()).toList(),
@@ -201,6 +202,11 @@ class DatabaseHelper {
         perspectiveVertical: _d(m, 'perspectiveVertical'),
         perspectiveHorizontal: _d(m, 'perspectiveHorizontal'),
         blurStrength: _d(m, 'blurStrength'),
+        curve: (m['curve'] is List)
+            ? (m['curve'] as List)
+                .map((e) => CurvePoint.fromMap(Map<String, dynamic>.from(e as Map)))
+                .toList()
+            : const [],
         healMask: _mask(m, 'healMask'),
         focusMask: _mask(m, 'focusMask'),
         selectiveMask: _mask(m, 'selectiveMask'),

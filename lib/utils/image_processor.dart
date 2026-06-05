@@ -1,11 +1,34 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/edit_settings.dart';
 import '../models/brush_mask.dart';
+
+/// Arguments for the background-isolate processing entrypoint.
+class _ProcessJob {
+  final Uint8List bytes;
+  final EditSettings settings;
+  final int jpegQuality;
+  final bool asPng;
+  const _ProcessJob({
+    required this.bytes,
+    required this.settings,
+    required this.jpegQuality,
+    required this.asPng,
+  });
+}
+
+/// Top-level entry run inside the isolate spawned by `compute`.
+Future<Uint8List> _processJobEntry(_ProcessJob job) => ImageProcessor.processBytes(
+      inputBytes: job.bytes,
+      settings: job.settings,
+      jpegQuality: job.jpegQuality,
+      asPng: job.asPng,
+    );
 
 /// One collage cell: a normalized rect (0..1) plus the source image bytes
 /// (null = empty slot, painted as a dark placeholder).
@@ -77,6 +100,23 @@ class ImageProcessor {
     return asPng
         ? Uint8List.fromList(img.encodePng(canvas))
         : Uint8List.fromList(img.encodeJpg(canvas, quality: jpegQuality));
+  }
+
+  /// Run [processBytes] on a background isolate so heavy full-resolution
+  /// decoding/encoding never blocks the UI thread. Use this for saving; the
+  /// live preview can call [processBytes] directly on small thumbnails.
+  static Future<Uint8List> processBytesIsolated({
+    required Uint8List inputBytes,
+    required EditSettings settings,
+    int jpegQuality = 95,
+    bool asPng = false,
+  }) {
+    return compute(_processJobEntry, _ProcessJob(
+      bytes: inputBytes,
+      settings: settings,
+      jpegQuality: jpegQuality,
+      asPng: asPng,
+    ));
   }
 
   /// Decode [inputBytes], apply [settings], and return the encoded result.
@@ -171,6 +211,10 @@ class ImageProcessor {
     if (s.saturation != 0) {
       image = img.adjustColor(image, saturation: 1.0 + s.saturation / 100);
     }
+    // Tone curve (master RGB).
+    if (!_curveIsIdentity(s.curve)) {
+      image = _applyCurve(image, s.curve);
+    }
     if (s.warmth != 0) {
       // Warmth = shift red up and blue down (or vice versa).
       image = _applyWarmth(image, s.warmth.round());
@@ -247,6 +291,49 @@ class ImageProcessor {
     for (final pixel in dst) {
       pixel.r = (pixel.r + amount).clamp(0, 255);
       pixel.b = (pixel.b - amount).clamp(0, 255);
+    }
+    return dst;
+  }
+
+  // ── Tone curve ─────────────────────────────────────────────────────
+  static bool _curveIsIdentity(List<CurvePoint> pts) {
+    if (pts.isEmpty) return true;
+    for (final p in pts) {
+      if ((p.x - p.y).abs() > 0.001) return false;
+    }
+    return true;
+  }
+
+  /// Build a 256-entry lookup table from the curve's control points (sorted by
+  /// x, piecewise-linear) and remap every channel through it.
+  static img.Image _applyCurve(img.Image src, List<CurvePoint> pts) {
+    final sorted = [...pts]..sort((a, b) => a.x.compareTo(b.x));
+    final lut = List<int>.filled(256, 0);
+    for (int i = 0; i < 256; i++) {
+      final x = i / 255.0;
+      double y;
+      if (x <= sorted.first.x) {
+        y = sorted.first.y;
+      } else if (x >= sorted.last.x) {
+        y = sorted.last.y;
+      } else {
+        y = sorted.last.y;
+        for (int k = 0; k < sorted.length - 1; k++) {
+          final a = sorted[k], b = sorted[k + 1];
+          if (x >= a.x && x <= b.x) {
+            final t = (b.x - a.x) == 0 ? 0.0 : (x - a.x) / (b.x - a.x);
+            y = a.y + (b.y - a.y) * t;
+            break;
+          }
+        }
+      }
+      lut[i] = (y * 255).clamp(0, 255).round();
+    }
+    final dst = img.Image.from(src);
+    for (final p in dst) {
+      p.r = lut[p.r.clamp(0, 255).toInt()];
+      p.g = lut[p.g.clamp(0, 255).toInt()];
+      p.b = lut[p.b.clamp(0, 255).toInt()];
     }
     return dst;
   }
