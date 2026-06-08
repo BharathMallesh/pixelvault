@@ -191,6 +191,25 @@ PixelVault is **offline by default**. AI is added without giving that up:
 
 ---
 
+## ✅ Phase 6 — Layer & mask engine
+
+- [x] **Layer model** — unified kinds (base / image / text / sticker / draw / adjustment) with per-layer visibility, opacity, and an optional alpha mask + invert.
+- [x] **10 blend modes** — normal, multiply, screen, overlay, soft/hard-light, darken, lighten, add, difference (CPU `LayerCompositor`, isolate-safe + headless-tested).
+- [x] **Layers panel** — app-bar toggle showing the real composition (Photo + Text/Drawing/Stickers groups) with per-group show/hide affecting preview and export.
+
+> The text/draw/sticker tools are surfaced as layers via a **bridge** (low-risk),
+> not yet a full per-element migration — the compositing engine that powers the
+> full version is built and tested.
+
+## ✅ Phase 7 — Cutout refine + background replace
+
+- [x] **Refine brush** — paint to add (subject) or erase (background) on the detected matte; non-destructive (dabs re-applied over the base), with undo.
+- [x] **Edge controls** — feather and edge shift (grow/shrink) sliders.
+- [x] **Replace background** — solid colour swatches, a sky gradient, or a **chosen photo** (cover-fit), composited at full resolution off the UI thread.
+- [x] Plus the existing **transparent PNG** and **blur background** outputs, all using the refined matte.
+
+---
+
 ## ⚠️ Known limitations (honest)
 
 These are genuine gaps vs. apps like Snapseed / Lightroom:

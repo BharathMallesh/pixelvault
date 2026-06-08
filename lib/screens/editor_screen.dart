@@ -21,6 +21,8 @@ import '../widgets/perspective_tool.dart';
 import '../widgets/blur_tool.dart';
 import '../widgets/selective_tool.dart';
 import '../widgets/cutout_tool.dart';
+import '../widgets/cutout_refine_overlay.dart';
+import '../providers/matte_provider.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
 import '../widgets/sticker_tool.dart';
@@ -62,6 +64,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ref.read(drawStrokesProvider.notifier).state = [];
       ref.read(activeDrawStrokeProvider.notifier).state = null;
       ref.read(groupVisibilityProvider.notifier).reset();
+      ref.read(matteEditProvider.notifier).reset();
 
       // Restore the most recent saved edit for this photo, if any.
       final restored = await DatabaseHelper().getLastEdit(widget.assetId);
@@ -116,6 +119,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     // Selective edit brush overlay
                     if (state.activeTool == EditorTool.selective)
                       SelectiveToolOverlay(imageSize: size),
+                    // Cutout matte refine brush overlay
+                    if (state.activeTool == EditorTool.cutout)
+                      CutoutRefineOverlay(canvasSize: size),
                     // Interactive crop rectangle
                     if (state.activeTool == EditorTool.crop)
                       CropOverlay(
