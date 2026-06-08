@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/layer.dart';
 import '../providers/layer_bridge.dart';
-import '../theme/app_theme.dart';
 
 /// Phase 6.5 bridge UI — a Layers panel backed by [bridgedLayersProvider].
 /// Shows the real composition (Photo + Text/Drawing/Stickers groups) and lets
