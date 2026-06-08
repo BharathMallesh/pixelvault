@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 
 class SettingsState {
@@ -7,30 +8,57 @@ class SettingsState {
   final int jpegQuality;
   final String exportFormat;
 
+  /// One-time opt-in for online AI features. OFF by default so the app stays
+  /// offline-by-default; on-device AI (e.g. cutout) runs regardless of this.
+  /// Persisted so the user's privacy choice survives restarts.
+  final bool aiOnlineEnabled;
+
   const SettingsState({
     this.themeMode = ThemeMode.system,
     this.jpegQuality = 90,
     this.exportFormat = 'jpeg',
+    this.aiOnlineEnabled = false,
   });
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     int? jpegQuality,
     String? exportFormat,
+    bool? aiOnlineEnabled,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
       jpegQuality: jpegQuality ?? this.jpegQuality,
       exportFormat: exportFormat ?? this.exportFormat,
+      aiOnlineEnabled: aiOnlineEnabled ?? this.aiOnlineEnabled,
     );
   }
 }
 
 class SettingsNotifier extends StateNotifier<SettingsState> {
-  SettingsNotifier() : super(const SettingsState());
+  static const _kAiOnline = 'ai_online_enabled';
+
+  SettingsNotifier() : super(const SettingsState()) {
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_kAiOnline);
+    if (enabled != null) {
+      state = state.copyWith(aiOnlineEnabled: enabled);
+    }
+  }
+
   void setThemeMode(ThemeMode mode) => state = state.copyWith(themeMode: mode);
   void setJpegQuality(int q) => state = state.copyWith(jpegQuality: q);
   void setExportFormat(String f) => state = state.copyWith(exportFormat: f);
+
+  Future<void> setAiOnlineEnabled(bool v) async {
+    state = state.copyWith(aiOnlineEnabled: v);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAiOnline, v);
+  }
 }
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
@@ -93,10 +121,44 @@ class SettingsScreen extends ConsumerWidget {
                 'Edits are saved as a new copy in your gallery — the original is never modified',
             iconColor: Colors.green,
           ),
+          _SectionHeader(label: 'AI features'),
+          SwitchListTile(
+            secondary: const Icon(Icons.auto_awesome_outlined, color: Colors.grey),
+            title: const Text('Enable online AI features', style: TextStyle(fontSize: 15)),
+            subtitle: const Text(
+              'Off by default. When on, AI features that need a server may send '
+              'the photo you are editing to our AI service. On-device tools '
+              '(like Cutout) always work offline regardless of this setting.',
+              style: TextStyle(fontSize: 12),
+            ),
+            value: settings.aiOnlineEnabled,
+            activeColor: AppTheme.primary,
+            onChanged: (v) {
+              if (v) {
+                _confirmAiOptIn(context, notifier);
+              } else {
+                notifier.setAiOnlineEnabled(false);
+              }
+            },
+          ),
           _SectionHeader(label: 'Privacy'),
-          _InfoTile(icon: Icons.wifi_off_outlined, title: 'No internet access', subtitle: 'This app never connects to the internet', iconColor: Colors.green),
+          _InfoTile(
+            icon: settings.aiOnlineEnabled ? Icons.wifi_outlined : Icons.wifi_off_outlined,
+            title: settings.aiOnlineEnabled ? 'Online AI features enabled' : 'No internet access',
+            subtitle: settings.aiOnlineEnabled
+                ? 'Photos stay on-device except when you tap an online AI feature'
+                : 'This app never connects to the internet',
+            iconColor: settings.aiOnlineEnabled ? Colors.orange : Colors.green,
+          ),
           _InfoTile(icon: Icons.person_off_outlined, title: 'No account required', subtitle: 'Open and edit instantly — no login ever', iconColor: Colors.green),
-          _InfoTile(icon: Icons.cloud_off_outlined, title: 'No cloud uploads', subtitle: 'All your photos stay on your device only', iconColor: Colors.green),
+          _InfoTile(
+            icon: settings.aiOnlineEnabled ? Icons.cloud_outlined : Icons.cloud_off_outlined,
+            title: settings.aiOnlineEnabled ? 'Cloud only for online AI' : 'No cloud uploads',
+            subtitle: settings.aiOnlineEnabled
+                ? 'Photos are uploaded only when you use an online AI feature'
+                : 'All your photos stay on your device only',
+            iconColor: settings.aiOnlineEnabled ? Colors.orange : Colors.green,
+          ),
           _InfoTile(icon: Icons.analytics_outlined, title: 'No tracking or analytics', subtitle: 'Zero data is collected or shared', iconColor: Colors.green),
           _SectionHeader(label: 'About'),
           _SettingTile(icon: Icons.info_outlined, title: 'Version', subtitle: '1.0.0 — Phase 1', onTap: null),
@@ -108,6 +170,36 @@ class SettingsScreen extends ConsumerWidget {
                 style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic)),
           ),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  void _confirmAiOptIn(BuildContext context, SettingsNotifier notifier) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enable online AI?'),
+        content: const Text(
+          'Online AI features (like AI upscale or generative fill) work by '
+          'sending the photo you are editing to our AI service over the '
+          'internet.\n\n'
+          'Your photos are never uploaded for any other reason. On-device '
+          'tools like Cutout keep working offline either way.\n\n'
+          'You can turn this off any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              notifier.setAiOnlineEnabled(true);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Enable'),
+          ),
         ],
       ),
     );

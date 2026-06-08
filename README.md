@@ -167,6 +167,30 @@ It is physically incapable of sending any data over the network.
 
 ---
 
+## ✅ Phase 5 — Hybrid AI (offline-first)
+
+PixelVault is **offline by default**. AI is added without giving that up:
+
+- [x] **AiService abstraction** — single seam the UI talks to; every capability declares whether it needs the network, so on-device features always work and cloud features stay gated.
+- [x] **AI Cutout (on-device)** — detects the subject and either saves it on a **transparent background (PNG)** or keeps it sharp while **blurring the background**. Runs entirely on a background isolate; **no network, no bundled model download** — works even with online AI turned off.
+- [x] **One-time AI opt-in (persisted)** — Settings → *Enable online AI features*, **off by default**, with an explicit consent dialog. Only gates *future* cloud features (e.g. AI upscale / generative fill); on-device Cutout ignores it.
+- [x] **Honest privacy UI** — when online AI is enabled, the Privacy section in Settings updates to say photos may be uploaded only when an online AI feature is used.
+
+> **How Cutout works (model-free):** a classical segmentation pipeline —
+> centre/colour-model subject prior → largest-connected-component → hole-fill →
+> edge feather → bilinear upscale. The code has a clearly marked seam
+> (`CutoutEngine._seamForTfliteModel`) where a TFLite model (U²-Net / MODNet)
+> drops in later for sharper edges, with **no change** to the tool, save
+> pipeline, or `CutoutResult` contract.
+
+> **Privacy model note:** Android permissions are app-wide, so a build that can
+> reach a server must declare `INTERNET`. The pure-offline build keeps the
+> *OS-enforced* "no internet permission" guarantee. The hybrid build's promise
+> is **"offline unless you opt in and tap an online AI feature, and we tell you
+> first"** — weaker than the OS guarantee, but explicit and user-controlled.
+
+---
+
 ## ⚠️ Known limitations (honest)
 
 These are genuine gaps vs. apps like Snapseed / Lightroom:
@@ -174,6 +198,7 @@ These are genuine gaps vs. apps like Snapseed / Lightroom:
 - **No native HEIC / camera-RAW decoding** — handled via an OS JPEG fallback, not true RAW development. No exposure recovery from RAW data.
 - **CPU pixel pipeline, not GPU** — adjustments run as Dart pixel loops (the live preview uses a downscaled copy for responsiveness; the GPU is only used for the canvas/overlay compositing). Very large images are slower than shader-based editors.
 - **Healing is patch-clone**, not content-aware fill — visible on complex textures.
-- **Background blur is manual/center-weighted**, not ML subject segmentation.
+- **Background blur** comes in two forms: a manual/centre-weighted brush (Blur tool) and an automatic **AI Cutout** (subject detection). The Cutout uses a **classical, model-free** segmentation — good on clear subject/background separation, weaker on fine hair/edges than a trained TFLite matting model (the drop-in seam for which exists).
 - **Selective edits are brush+feather masks** — no luminosity masks or gradient/radial filters.
-- True **GPU acceleration** and **on-device ML (portrait masks)** would require heavy native/TFLite dependencies; deliberately omitted to keep the app lightweight and fully offline (no INTERNET permission).
+- **No cloud AI yet** — the online-AI opt-in toggle and `AiService.needsNetwork` seam are in place, but no server-backed feature (upscale, generative fill) is wired. Adding one requires a backend + the `INTERNET` permission.
+- True **GPU acceleration** and a **trained on-device ML matting model** would require heavy native/TFLite dependencies; deliberately deferred to keep the app lightweight (the classical cutout covers the common case offline today).

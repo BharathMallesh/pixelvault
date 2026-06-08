@@ -20,6 +20,7 @@ import '../widgets/heal_tool.dart';
 import '../widgets/perspective_tool.dart';
 import '../widgets/blur_tool.dart';
 import '../widgets/selective_tool.dart';
+import '../widgets/cutout_tool.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
 import '../widgets/sticker_tool.dart';
@@ -156,7 +157,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 160),
                   child: _ToolPanel(
-                      key: ValueKey(state.activeTool), tool: state.activeTool),
+                      key: ValueKey(state.activeTool),
+                      tool: state.activeTool,
+                      assetId: widget.assetId),
                 ),
               ],
             ),
@@ -233,6 +236,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       case EditorTool.perspective: return 'Perspective';
       case EditorTool.blur:        return 'Background Blur';
       case EditorTool.selective:   return 'Selective Edit';
+      case EditorTool.cutout:      return 'AI Cutout';
       case EditorTool.text:        return 'Add Text';
       case EditorTool.draw:        return 'Draw';
       case EditorTool.sticker:     return 'Stickers';
@@ -445,6 +449,7 @@ class _ToolTabBar extends StatelessWidget {
       (EditorTool.perspective, Icons.grid_3x3_outlined,      'Persp.'),
       (EditorTool.blur,        Icons.lens_blur_outlined,     'Blur'),
       (EditorTool.selective,   Icons.gesture_outlined,       'Select'),
+      (EditorTool.cutout,      Icons.auto_awesome_outlined,  'Cutout'),
       (EditorTool.text,        Icons.text_fields_outlined,   'Text'),
       (EditorTool.draw,        Icons.brush_outlined,         'Draw'),
       (EditorTool.sticker,     Icons.emoji_emotions_outlined,'Sticker'),
@@ -489,7 +494,8 @@ class _ToolTabBar extends StatelessWidget {
 
 class _ToolPanel extends ConsumerWidget {
   final EditorTool tool;
-  const _ToolPanel({super.key, required this.tool});
+  final String assetId;
+  const _ToolPanel({super.key, required this.tool, required this.assetId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -505,6 +511,7 @@ class _ToolPanel extends ConsumerWidget {
       case EditorTool.perspective: return const PerspectiveToolPanel();
       case EditorTool.blur:        return const BlurToolPanel();
       case EditorTool.selective:   return const SelectiveToolPanel();
+      case EditorTool.cutout:      return CutoutToolPanel(assetId: assetId);
       case EditorTool.text:        return const TextToolPanel();
       case EditorTool.draw:        return const DrawToolPanel();
       case EditorTool.sticker:     return const StickerToolPanel();
