@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/edit_settings.dart';
 import '../models/brush_mask.dart';
 
-enum EditorTool { filter, adjust, hsl, curves, crop, heal, perspective, blur, selective, cutout, text, draw, sticker }
+enum EditorTool { filter, adjust, hsl, curves, crop, heal, perspective, blur, selective, cutout, effects, text, draw, sticker }
 
 class EditorState {
   final String? assetId;
@@ -195,6 +195,21 @@ class EditorNotifier extends StateNotifier<EditorState> {
   void setRotation(double v)         => updateSetting(state.current.copyWith(rotation: v));
   void toggleFlipH()                 => updateSetting(state.current.copyWith(flipHorizontal: !state.current.flipHorizontal));
   void toggleFlipV()                 => updateSetting(state.current.copyWith(flipVertical: !state.current.flipVertical));
+
+  // Phase 8 — creative assets (frames + light overlays)
+  void setFrame(String style) => updateSetting(state.current.copyWith(
+      frameStyle: style,
+      frameWidth: style == 'none'
+          ? 0
+          : (state.current.frameWidth == 0 ? 30 : state.current.frameWidth)));
+  void setFrameWidth(double v) => updateSetting(state.current.copyWith(frameWidth: v));
+  void setOverlay(String effect) => updateSetting(state.current.copyWith(
+      overlayEffect: effect,
+      overlayStrength: effect == 'none'
+          ? 0
+          : (state.current.overlayStrength == 0 ? 50 : state.current.overlayStrength)));
+  void setOverlayStrength(double v) =>
+      updateSetting(state.current.copyWith(overlayStrength: v));
 
   // Filter
   void applyFilter(String filterId, EditSettings filterSettings) {

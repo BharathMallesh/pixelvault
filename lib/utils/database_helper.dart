@@ -165,6 +165,11 @@ class DatabaseHelper {
         'flipV': s.flipVertical,
         'crop': s.cropRect?.toMap(),
         'filter': s.activeFilter,
+        // Phase 8 creative assets
+        'frameStyle': s.frameStyle,
+        'frameWidth': s.frameWidth,
+        'overlayEffect': s.overlayEffect,
+        'overlayStrength': s.overlayStrength,
       };
 
   // Lenient getters so older/partial rows still deserialize.
@@ -221,5 +226,9 @@ class DatabaseHelper {
             ? CropRect.fromMap(Map<String, dynamic>.from(m['crop'] as Map))
             : null,
         activeFilter: m['filter'] as String?,
+        frameStyle: m['frameStyle'] as String? ?? 'none',
+        frameWidth: _d(m, 'frameWidth'),
+        overlayEffect: m['overlayEffect'] as String? ?? 'none',
+        overlayStrength: _d(m, 'overlayStrength'),
       );
 }

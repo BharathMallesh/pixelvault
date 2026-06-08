@@ -208,6 +208,16 @@ PixelVault is **offline by default**. AI is added without giving that up:
 - [x] **Replace background** — solid colour swatches, a sky gradient, or a **chosen photo** (cover-fit), composited at full resolution off the UI thread.
 - [x] Plus the existing **transparent PNG** and **blur background** outputs, all using the refined matte.
 
+## ✅ Phase 8 — Creative assets
+
+- [x] **Frames & borders** — white, black, film (cinematic top/bottom), polaroid (thick bottom), rounded; adjustable width. Rendered procedurally (no bundled artwork).
+- [x] **Light overlays** — warm/cool light leaks, sun flare, bokeh, film grain; adjustable strength. All procedural (gradients/noise), screen/add-blended.
+- [x] **Sticker library** — 5 categories (Smileys, Love, Celebrate, Nature, Fun) with **keyword search** and a grid picker.
+- [x] Frames + overlays are part of the edit pipeline, so they **preview live, save at full resolution, and persist** for non-destructive re-edit.
+
+> Stickers use system emoji and all effects are generated in code — nothing
+> copyrighted is bundled, keeping the app lightweight and original.
+
 ---
 
 ## ⚠️ Known limitations (honest)

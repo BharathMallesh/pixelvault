@@ -74,6 +74,14 @@ class EditSettings {
   // Active filter name
   final String? activeFilter;
 
+  // Phase 8 — Creative assets applied at the end of the pipeline.
+  // Frame/border: 'none' | 'white' | 'black' | 'film' | 'polaroid' | 'rounded'.
+  final String frameStyle;
+  final double frameWidth; // 0..100, fraction of the shorter side / 4
+  // Light overlay: 'none' | 'leak_warm' | 'leak_cool' | 'bokeh' | 'sunflare' | 'grain'.
+  final String overlayEffect;
+  final double overlayStrength; // 0..100
+
   const EditSettings({
     this.brightness = 0,
     this.contrast = 0,
@@ -116,6 +124,10 @@ class EditSettings {
     this.flipVertical = false,
     this.cropRect,
     this.activeFilter,
+    this.frameStyle = 'none',
+    this.frameWidth = 0,
+    this.overlayEffect = 'none',
+    this.overlayStrength = 0,
   });
 
   bool get isDefault =>
@@ -133,7 +145,8 @@ class EditSettings {
       selBrightness == 0 && selContrast == 0 &&
       selSaturation == 0 && selWarmth == 0 &&
       !flipHorizontal && !flipVertical &&
-      cropRect == null && activeFilter == null;
+      cropRect == null && activeFilter == null &&
+      frameStyle == 'none' && overlayEffect == 'none';
 
   // A curve does nothing if it's empty or a straight 0,0 -> 1,1 diagonal.
   bool get _curveIsIdentity {
@@ -164,6 +177,8 @@ class EditSettings {
     double? rotation, bool? flipHorizontal, bool? flipVertical,
     CropRect? cropRect, bool clearCrop = false,
     String? activeFilter, bool clearFilter = false,
+    String? frameStyle, double? frameWidth,
+    String? overlayEffect, double? overlayStrength,
   }) {
     return EditSettings(
       brightness: brightness ?? this.brightness,
@@ -213,6 +228,10 @@ class EditSettings {
       flipVertical: flipVertical ?? this.flipVertical,
       cropRect: clearCrop ? null : (cropRect ?? this.cropRect),
       activeFilter: clearFilter ? null : (activeFilter ?? this.activeFilter),
+      frameStyle: frameStyle ?? this.frameStyle,
+      frameWidth: frameWidth ?? this.frameWidth,
+      overlayEffect: overlayEffect ?? this.overlayEffect,
+      overlayStrength: overlayStrength ?? this.overlayStrength,
     );
   }
 

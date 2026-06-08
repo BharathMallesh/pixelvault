@@ -282,7 +282,145 @@ class ImageProcessor {
       image = _applyVignette(image, s.vignette / 100);
     }
 
+    // 14. Light overlay effect (Phase 8.3) — screen/add-blended gradients.
+    if (s.overlayEffect != 'none' && s.overlayStrength > 0) {
+      image = _applyOverlayEffect(image, s.overlayEffect, s.overlayStrength / 100);
+    }
+
+    // 15. Frame / border (Phase 8.2) — drawn last so it sits over everything.
+    if (s.frameStyle != 'none' && s.frameWidth > 0) {
+      image = _applyFrame(image, s.frameStyle, s.frameWidth / 100);
+    }
+
     return image;
+  }
+
+  // ── Light overlay effects (Phase 8.3) ──────────────────────────────
+  // All procedurally generated (no bundled artwork). [strength] 0..1.
+  static img.Image _applyOverlayEffect(
+      img.Image src, String effect, double strength) {
+    final w = src.width, h = src.height;
+    final dst = img.Image.from(src);
+    final maxD = math.sqrt(w * w + h * h) / 2;
+
+    // Per-effect colour + placement of the light source.
+    // Returns added light (0..255-ish) per channel for pixel (x,y).
+    List<double> light(int x, int y) {
+      switch (effect) {
+        case 'leak_warm': {
+          // Warm leak from the top-right corner.
+          final d = math.sqrt(math.pow(x - w * 0.85, 2) + math.pow(y - h * 0.15, 2));
+          final f = (1 - (d / (maxD * 1.2))).clamp(0.0, 1.0);
+          return [255 * f, 150 * f, 60 * f];
+        }
+        case 'leak_cool': {
+          // Cool leak from the bottom-left corner.
+          final d = math.sqrt(math.pow(x - w * 0.15, 2) + math.pow(y - h * 0.85, 2));
+          final f = (1 - (d / (maxD * 1.2))).clamp(0.0, 1.0);
+          return [70 * f, 130 * f, 255 * f];
+        }
+        case 'sunflare': {
+          // Bright warm flare from center-top.
+          final d = math.sqrt(math.pow(x - w * 0.5, 2) + math.pow(y - h * 0.25, 2));
+          final f = (1 - (d / (maxD * 0.9))).clamp(0.0, 1.0);
+          final f2 = f * f;
+          return [255 * f2, 230 * f2, 170 * f2];
+        }
+        case 'bokeh': {
+          // Soft circular highlights on a deterministic grid.
+          double acc = 0;
+          for (int i = 0; i < 9; i++) {
+            final bx = w * ((i * 0.37 + 0.1) % 1.0);
+            final by = h * ((i * 0.61 + 0.2) % 1.0);
+            final br = maxD * (0.06 + (i % 3) * 0.03);
+            final d = math.sqrt((x - bx) * (x - bx) + (y - by) * (y - by));
+            acc += (1 - (d / br)).clamp(0.0, 1.0);
+          }
+          final f = acc.clamp(0.0, 1.0);
+          return [220 * f, 220 * f, 255 * f];
+        }
+        case 'grain': {
+          // Deterministic film grain (value noise from coordinates).
+          final n = ((math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1.0);
+          final v = (n - 0.5) * 90;
+          return [v, v, v];
+        }
+        default:
+          return const [0, 0, 0];
+      }
+    }
+
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        final p = dst.getPixel(x, y);
+        final l = light(x, y);
+        // Both light leaks (additive) and grain (signed) add to the channels.
+        p.r = (p.r + l[0] * strength).clamp(0, 255);
+        p.g = (p.g + l[1] * strength).clamp(0, 255);
+        p.b = (p.b + l[2] * strength).clamp(0, 255);
+      }
+    }
+    return dst;
+  }
+
+  // ── Frames / borders (Phase 8.2) ───────────────────────────────────
+  static img.Image _applyFrame(img.Image src, String style, double widthFrac) {
+    final w = src.width, h = src.height;
+    final border = (math.min(w, h) * widthFrac / 4).round().clamp(1, math.min(w, h) ~/ 2);
+
+    img.ColorRgb8 col;
+    int top = border, bottom = border, left = border, right = border;
+    switch (style) {
+      case 'black':
+        col = img.ColorRgb8(0, 0, 0);
+        break;
+      case 'film':
+        // Black border with a thicker top/bottom (cinematic).
+        col = img.ColorRgb8(0, 0, 0);
+        top = bottom = (border * 1.8).round();
+        break;
+      case 'polaroid':
+        // White with a much thicker bottom.
+        col = img.ColorRgb8(245, 245, 240);
+        bottom = (border * 4).round();
+        break;
+      case 'white':
+      case 'rounded':
+      default:
+        col = img.ColorRgb8(255, 255, 255);
+        break;
+    }
+
+    final dst = img.Image.from(src);
+    img.fillRect(dst, x1: 0, y1: 0, x2: w - 1, y2: top - 1, color: col);
+    img.fillRect(dst, x1: 0, y1: h - bottom, x2: w - 1, y2: h - 1, color: col);
+    img.fillRect(dst, x1: 0, y1: 0, x2: left - 1, y2: h - 1, color: col);
+    img.fillRect(dst, x1: w - right, y1: 0, x2: w - 1, y2: h - 1, color: col);
+
+    if (style == 'rounded') {
+      // Round the inner photo corners by painting white quarter-circles.
+      final rad = border * 3;
+      _roundCorner(dst, left, top, rad, true, true, col);
+      _roundCorner(dst, w - right - 1, top, rad, false, true, col);
+      _roundCorner(dst, left, h - bottom - 1, rad, true, false, col);
+      _roundCorner(dst, w - right - 1, h - bottom - 1, rad, false, false, col);
+    }
+    return dst;
+  }
+
+  static void _roundCorner(img.Image im, int cornerX, int cornerY, int rad,
+      bool left, bool top, img.Color col) {
+    final ccx = cornerX + (left ? rad : -rad);
+    final ccy = cornerY + (top ? rad : -rad);
+    for (int dy = 0; dy < rad; dy++) {
+      for (int dx = 0; dx < rad; dx++) {
+        final x = left ? cornerX + dx : cornerX - dx;
+        final y = top ? cornerY + dy : cornerY - dy;
+        if (x < 0 || y < 0 || x >= im.width || y >= im.height) continue;
+        final d = math.sqrt((x - ccx) * (x - ccx) + (y - ccy) * (y - ccy));
+        if (d > rad) im.setPixel(x, y, col);
+      }
+    }
   }
 
   // ── Warmth (color temperature) ─────────────────────────────────────
