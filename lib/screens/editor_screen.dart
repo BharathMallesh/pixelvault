@@ -24,6 +24,8 @@ import '../widgets/cutout_tool.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
 import '../widgets/sticker_tool.dart';
+import '../widgets/bridged_layer_panel.dart';
+import '../providers/layer_bridge.dart';
 import 'presets_screen.dart';
 
 // Expose EditSettings for _AdjustPanel
@@ -43,6 +45,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   final GlobalKey _captureKey = GlobalKey();
   // The preview area size overlays were laid out in (for full-res compositing).
   Size _canvasSize = Size.zero;
+  // Whether the Layers panel is shown (Phase 6.5 bridge).
+  bool _showLayers = false;
 
   @override
   void initState() {
@@ -57,6 +61,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ref.read(selectedStickerIdProvider.notifier).state = null;
       ref.read(drawStrokesProvider.notifier).state = [];
       ref.read(activeDrawStrokeProvider.notifier).state = null;
+      ref.read(groupVisibilityProvider.notifier).reset();
 
       // Restore the most recent saved edit for this photo, if any.
       final restored = await DatabaseHelper().getLastEdit(widget.assetId);
@@ -117,10 +122,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                         canvasSize: size,
                         aspectRatio: ref.watch(cropAspectRatioProvider),
                       ),
-                    // Text overlays (always visible)
-                    TextOverlayCanvas(canvasSize: size),
-                    // Sticker overlays (always visible)
-                    StickerCanvas(canvasSize: size),
+                    // Sticker overlays (hidden if the Stickers layer is off)
+                    if (ref.watch(groupVisibilityProvider).sticker)
+                      StickerCanvas(canvasSize: size),
+                    // Text overlays (hidden if the Text layer is off)
+                    if (ref.watch(groupVisibilityProvider).text)
+                      TextOverlayCanvas(canvasSize: size),
                   ],
                 ),
               );
@@ -146,6 +153,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               assetId: widget.assetId,
               onFilterSelected: (f) => n.applyFilter(f.id, f.settings),
             ),
+
+          // Layers panel (Phase 6.5 bridge) — toggled from the app bar.
+          if (_showLayers) const BridgedLayerPanel(),
 
           // Tool area
           Container(
@@ -183,6 +193,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       title: Text(_toolLabel(state.activeTool),
           style: const TextStyle(color: Colors.white, fontSize: 15)),
       actions: [
+        // Layers panel toggle (Phase 6.5 bridge)
+        IconButton(
+          icon: const Icon(Icons.layers_outlined, size: 20),
+          color: _showLayers ? AppTheme.primaryLight : Colors.white70,
+          tooltip: 'Layers',
+          onPressed: () => setState(() => _showLayers = !_showLayers),
+        ),
         // Presets button
         IconButton(
           icon: const Icon(Icons.bookmarks_outlined, size: 19),
@@ -267,12 +284,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         final processed = await ImageProcessor.processBytesIsolated(
           inputBytes: origin, settings: settings, jpegQuality: appSettings.jpegQuality,
         );
+        // Honor per-group visibility from the Layers panel.
+        final vis = ref.read(groupVisibilityProvider);
         final composite = await OverlayCompositor.compose(
           photoBytes: processed,
           canvasSize: _canvasSize,
-          strokes: ref.read(drawStrokesProvider),
-          texts: ref.read(textOverlaysProvider),
-          stickers: ref.read(stickerOverlaysProvider),
+          strokes: vis.draw ? ref.read(drawStrokesProvider) : const [],
+          texts: vis.text ? ref.read(textOverlaysProvider) : const [],
+          stickers: vis.sticker ? ref.read(stickerOverlaysProvider) : const [],
         );
         await PhotoSaver.saveBytes(composite, asPng: true);
         // Record history so this photo shows in the "Edited" tab.
