@@ -141,6 +141,79 @@ class BeautyOps {
     return true; // no mask -> treat whole ROI as skin
   }
 
+  /// Phase 9.6 — lip tint. Colour-shifts reddish pixels in the mouth band
+  /// toward [r,g,b]. [amount] 0..1.
+  static img.Image lipTint(
+      img.Image src, Face face, double amount, int r, int g, int b) {
+    if (amount <= 0) return src;
+    final w = src.width, h = src.height;
+    final dst = img.Image.from(src);
+    final m = face.mouthBand;
+    final x0 = (m.l * w).floor().clamp(0, w - 1);
+    final x1 = (m.r * w).ceil().clamp(0, w - 1);
+    final y0 = (m.t * h).floor().clamp(0, h - 1);
+    final y1 = (m.b * h).ceil().clamp(0, h - 1);
+    for (int y = y0; y <= y1; y++) {
+      for (int x = x0; x <= x1; x++) {
+        final p = src.getPixel(x, y);
+        final pr = p.r.toDouble(), pg = p.g.toDouble(), pb = p.b.toDouble();
+        // Lips ~ red-dominant, mid luminance.
+        final isLip = pr > pg + 8 && pr > pb + 8 && pr > 60 && pr < 235;
+        if (!isLip) continue;
+        final lum = (0.299 * pr + 0.587 * pg + 0.114 * pb) / 255.0;
+        // Tint colour modulated by the pixel's own luminance (keep shading).
+        dst.setPixelRgb(
+          x,
+          y,
+          (pr + (r * lum - pr) * amount).round().clamp(0, 255),
+          (pg + (g * lum - pg) * amount).round().clamp(0, 255),
+          (pb + (b * lum - pb) * amount).round().clamp(0, 255),
+        );
+      }
+    }
+    return dst;
+  }
+
+  /// Phase 9.6 — cheek blush. Adds a soft [r,g,b] tint in two cheek discs.
+  /// [amount] 0..1.
+  static img.Image cheekBlush(
+      img.Image src, Face face, double amount, int r, int g, int b) {
+    if (amount <= 0) return src;
+    final w = src.width, h = src.height;
+    final dst = img.Image.from(src);
+    // Two cheek centres, normalized within the face.
+    final centres = [
+      (face.left + face.w * 0.27, face.top + face.h * 0.58),
+      (face.left + face.w * 0.73, face.top + face.h * 0.58),
+    ];
+    final rad = face.w * 0.18 * math.max(w, h);
+    for (final (ncx, ncy) in centres) {
+      final cx = ncx * w, cy = ncy * h;
+      final minX = math.max(0, (cx - rad).floor());
+      final maxX = math.min(w - 1, (cx + rad).ceil());
+      final minY = math.max(0, (cy - rad).floor());
+      final maxY = math.min(h - 1, (cy + rad).ceil());
+      for (int y = minY; y <= maxY; y++) {
+        for (int x = minX; x <= maxX; x++) {
+          if (!_skinAt(face, src, x, y)) continue;
+          final d = math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+          if (d > rad) continue;
+          final f = (1 - d / rad);
+          final t = amount * f * f * 0.5;
+          final p = src.getPixel(x, y);
+          dst.setPixelRgb(
+            x,
+            y,
+            (p.r + (r - p.r) * t).round().clamp(0, 255),
+            (p.g + (g - p.g) * t).round().clamp(0, 255),
+            (p.b + (b - p.b) * t).round().clamp(0, 255),
+          );
+        }
+      }
+    }
+    return dst;
+  }
+
   /// Apply all enabled beauty ops in order. Returns the modified image.
   static img.Image applyAll(
     img.Image src,
@@ -148,11 +221,19 @@ class BeautyOps {
     double smooth = 0,
     double teeth = 0,
     double eyes = 0,
+    double lip = 0,
+    double blush = 0,
+    List<int> lipColor = const [200, 40, 70],
+    List<int> blushColor = const [240, 120, 120],
   }) {
     var out = src;
     if (smooth > 0) out = skinSmooth(out, face, smooth);
     if (teeth > 0) out = teethWhiten(out, face, teeth);
     if (eyes > 0) out = eyeBrighten(out, face, eyes);
+    if (lip > 0) out = lipTint(out, face, lip, lipColor[0], lipColor[1], lipColor[2]);
+    if (blush > 0) {
+      out = cheekBlush(out, face, blush, blushColor[0], blushColor[1], blushColor[2]);
+    }
     return out;
   }
 }
@@ -162,7 +243,7 @@ class BeautyOps {
 class BeautyJob {
   final Uint8List bytes;
   final Face face;
-  final double smooth, teeth, eyes;
+  final double smooth, teeth, eyes, lip, blush;
   final bool asPng;
   final int jpegQuality;
   const BeautyJob({
@@ -171,6 +252,8 @@ class BeautyJob {
     this.smooth = 0,
     this.teeth = 0,
     this.eyes = 0,
+    this.lip = 0,
+    this.blush = 0,
     this.asPng = false,
     this.jpegQuality = 95,
   });
@@ -183,7 +266,11 @@ Future<Uint8List> _beautyEntry(BeautyJob job) async {
   if (im == null) throw Exception('Could not decode image for beauty');
   if (im.numChannels < 3 || im.hasPalette) im = im.convert(numChannels: 3);
   final out = BeautyOps.applyAll(im, job.face,
-      smooth: job.smooth, teeth: job.teeth, eyes: job.eyes);
+      smooth: job.smooth,
+      teeth: job.teeth,
+      eyes: job.eyes,
+      lip: job.lip,
+      blush: job.blush);
   return job.asPng
       ? img.encodePng(out)
       : img.encodeJpg(out, quality: job.jpegQuality);

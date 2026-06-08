@@ -230,6 +230,14 @@ PixelVault is **offline by default**. AI is added without giving that up:
 > retouch but less precise than a trained model. The model upgrade is isolated
 > to one seam.
 
+## ✅ Phase 8/9 additions + Phase 10 scaffold
+
+- [x] **Liquify / reshape (9.5)** — push / bloat / pinch warp brush; strokes build a displacement field resampled with bilinear interpolation at full res (isolate-backed).
+- [x] **Makeup (9.6)** — lip tint and cheek blush targeted to the detected face regions.
+- [x] **Rich text (8.5)** — outline (true stroke in export) and drop shadow toggles, matched in preview.
+- [x] **Custom brushes (8.4)** — Normal / Neon (bright core + glow) / Glow draw styles, rendered in both the live canvas and the full-res export.
+- [x] **Cloud AI scaffold (10)** — `CloudAiService` interface + `DisabledCloudAiService` (no backend, no network). Defines the 5 generative features and the opt-in-gated call seam; a real backend drops in without touching callers. See PLAN.md Phase 10 for the backend/cost/INTERNET steps.
+
 ---
 
 ## ⚠️ Known limitations (honest)

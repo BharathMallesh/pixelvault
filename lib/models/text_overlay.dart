@@ -17,6 +17,11 @@ class TextOverlay {
   final double rotation;
   final String fontFamily;
 
+  // Phase 8.5 — rich text styling.
+  final bool hasOutline;
+  final Color outlineColor;
+  final bool hasShadow;
+
   const TextOverlay({
     required this.id,
     required this.text,
@@ -30,6 +35,9 @@ class TextOverlay {
     this.y = 0.5,
     this.rotation = 0,
     this.fontFamily = 'Inter',
+    this.hasOutline = false,
+    this.outlineColor = Colors.black,
+    this.hasShadow = false,
   });
 
   TextOverlay copyWith({
@@ -37,6 +45,7 @@ class TextOverlay {
     Color? color, Color? backgroundColor, bool? hasBackground,
     TextAlignment2? alignment, TextStyle2? style,
     double? x, double? y, double? rotation, String? fontFamily,
+    bool? hasOutline, Color? outlineColor, bool? hasShadow,
   }) {
     return TextOverlay(
       id: id ?? this.id, text: text ?? this.text,
@@ -46,6 +55,9 @@ class TextOverlay {
       alignment: alignment ?? this.alignment, style: style ?? this.style,
       x: x ?? this.x, y: y ?? this.y, rotation: rotation ?? this.rotation,
       fontFamily: fontFamily ?? this.fontFamily,
+      hasOutline: hasOutline ?? this.hasOutline,
+      outlineColor: outlineColor ?? this.outlineColor,
+      hasShadow: hasShadow ?? this.hasShadow,
     );
   }
 }

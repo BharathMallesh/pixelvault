@@ -31,6 +31,8 @@ class _BeautyToolPanelState extends ConsumerState<BeautyToolPanel> {
   double _smooth = 0.5;
   double _teeth = 0.0;
   double _eyes = 0.3;
+  double _lip = 0.0;
+  double _blush = 0.0;
 
   Future<Uint8List?> _loadOrigin() async {
     if (_originBytes != null) return _originBytes;
@@ -82,6 +84,8 @@ class _BeautyToolPanelState extends ConsumerState<BeautyToolPanel> {
         smooth: _smooth,
         teeth: _teeth,
         eyes: _eyes,
+        lip: _lip,
+        blush: _blush,
       ));
       await PhotoSaver.saveBytes(out, asPng: false);
       try {
@@ -143,6 +147,8 @@ class _BeautyToolPanelState extends ConsumerState<BeautyToolPanel> {
               _slider('Skin smooth', _smooth, (v) => setState(() => _smooth = v)),
               _slider('Teeth whiten', _teeth, (v) => setState(() => _teeth = v)),
               _slider('Eye brighten', _eyes, (v) => setState(() => _eyes = v)),
+              _slider('Lip tint', _lip, (v) => setState(() => _lip = v)),
+              _slider('Cheek blush', _blush, (v) => setState(() => _blush = v)),
               const SizedBox(height: 8),
               FilledButton.icon(
                 onPressed: _busy ? null : _save,

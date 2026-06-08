@@ -24,6 +24,7 @@ import '../widgets/cutout_tool.dart';
 import '../widgets/cutout_refine_overlay.dart';
 import '../widgets/effects_tool.dart';
 import '../widgets/beauty_tool.dart';
+import '../widgets/liquify_tool.dart';
 import '../providers/matte_provider.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
@@ -124,6 +125,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     // Cutout matte refine brush overlay
                     if (state.activeTool == EditorTool.cutout)
                       CutoutRefineOverlay(canvasSize: size),
+                    // Liquify reshape brush overlay
+                    if (state.activeTool == EditorTool.liquify)
+                      LiquifyOverlay(canvasSize: size),
                     // Interactive crop rectangle
                     if (state.activeTool == EditorTool.crop)
                       CropOverlay(
@@ -263,6 +267,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       case EditorTool.selective:   return 'Selective Edit';
       case EditorTool.cutout:      return 'AI Cutout';
       case EditorTool.beauty:      return 'Beauty Retouch';
+      case EditorTool.liquify:     return 'Liquify / Reshape';
       case EditorTool.effects:     return 'Frames & Effects';
       case EditorTool.text:        return 'Add Text';
       case EditorTool.draw:        return 'Draw';
@@ -480,6 +485,7 @@ class _ToolTabBar extends StatelessWidget {
       (EditorTool.selective,   Icons.gesture_outlined,       'Select'),
       (EditorTool.cutout,      Icons.auto_awesome_outlined,  'Cutout'),
       (EditorTool.beauty,      Icons.face_retouching_natural,'Beauty'),
+      (EditorTool.liquify,     Icons.water_drop_outlined,    'Liquify'),
       (EditorTool.effects,     Icons.filter_frames_outlined, 'Frames'),
       (EditorTool.text,        Icons.text_fields_outlined,   'Text'),
       (EditorTool.draw,        Icons.brush_outlined,         'Draw'),
@@ -544,6 +550,7 @@ class _ToolPanel extends ConsumerWidget {
       case EditorTool.selective:   return const SelectiveToolPanel();
       case EditorTool.cutout:      return CutoutToolPanel(assetId: assetId);
       case EditorTool.beauty:      return BeautyToolPanel(assetId: assetId);
+      case EditorTool.liquify:     return LiquifyToolPanel(assetId: assetId);
       case EditorTool.effects:     return const EffectsToolPanel();
       case EditorTool.text:        return const TextToolPanel();
       case EditorTool.draw:        return const DrawToolPanel();

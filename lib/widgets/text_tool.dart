@@ -105,11 +105,20 @@ class _DraggableText extends StatelessWidget {
                           overlay.style == TextStyle2.boldItalic
                       ? FontStyle.italic
                       : FontStyle.normal,
+                  // Preview shadow + an approximate outline (4-direction ring).
+                  // The saved export uses a true stroke (overlay_compositor).
                   shadows: [
-                    Shadow(
-                        color: Colors.black.withOpacity(0.5),
-                        blurRadius: 4,
-                        offset: const Offset(1, 1)),
+                    if (overlay.hasShadow)
+                      Shadow(
+                          color: Colors.black.withOpacity(0.5),
+                          blurRadius: 4,
+                          offset: const Offset(2, 2)),
+                    if (overlay.hasOutline)
+                      for (final o in const [
+                        Offset(-1.2, 0), Offset(1.2, 0),
+                        Offset(0, -1.2), Offset(0, 1.2),
+                      ])
+                        Shadow(color: overlay.outlineColor, offset: o, blurRadius: 1),
                   ],
                 ),
               ),
@@ -156,6 +165,8 @@ class _TextToolPanelState extends ConsumerState<TextToolPanel> {
   double _fontSize = 24;
   TextStyle2 _style = TextStyle2.bold;
   bool _hasBg = false;
+  bool _hasOutline = false;
+  bool _hasShadow = true;
 
   void _addText() {
     if (_ctrl.text.trim().isEmpty) return;
@@ -166,6 +177,8 @@ class _TextToolPanelState extends ConsumerState<TextToolPanel> {
       color: _color,
       hasBackground: _hasBg,
       style: _style,
+      hasOutline: _hasOutline,
+      hasShadow: _hasShadow,
       x: 0.5, y: 0.4,
     );
     ref.read(textOverlaysProvider.notifier).state = [
@@ -283,6 +296,12 @@ class _TextToolPanelState extends ConsumerState<TextToolPanel> {
                   child: const Text('BG', style: TextStyle(fontSize: 11, color: Colors.white60)),
                 ),
               ),
+              const SizedBox(width: 6),
+              _toggleChip('Outline', _hasOutline,
+                  () => setState(() => _hasOutline = !_hasOutline)),
+              const SizedBox(width: 6),
+              _toggleChip('Shadow', _hasShadow,
+                  () => setState(() => _hasShadow = !_hasShadow)),
             ],
           ),
 
@@ -292,6 +311,21 @@ class _TextToolPanelState extends ConsumerState<TextToolPanel> {
                 style: const TextStyle(fontSize: 10, color: Colors.white24)),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _toggleChip(String label, bool on, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: on ? AppTheme.toolbarSelected : Colors.white.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white60)),
       ),
     );
   }

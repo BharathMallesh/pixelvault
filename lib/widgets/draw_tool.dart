@@ -9,6 +9,7 @@ final activeDrawStrokeProvider = StateProvider<DrawStroke?>((ref) => null);
 final drawColorProvider = StateProvider<Color>((ref) => Colors.white);
 final drawWidthProvider = StateProvider<double>((ref) => 5.0);
 final isEraserProvider = StateProvider<bool>((ref) => false);
+final brushStyleProvider = StateProvider<BrushStyle>((ref) => BrushStyle.normal);
 
 class DrawCanvas extends ConsumerWidget {
   final Size canvasSize;
@@ -33,6 +34,7 @@ class DrawCanvas extends ConsumerWidget {
           color: isEraser ? Colors.transparent : color,
           width: width,
           isEraser: isEraser,
+          brush: ref.read(brushStyleProvider),
         );
         ref.read(activeDrawStrokeProvider.notifier).state = stroke;
       },
@@ -78,14 +80,6 @@ class _DrawPainter extends CustomPainter {
 
   void _paintStroke(Canvas canvas, DrawStroke stroke, Size size) {
     if (stroke.points.length < 2) return;
-    final paint = Paint()
-      ..color = stroke.isEraser ? Colors.transparent : stroke.color
-      ..strokeWidth = stroke.width
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
-
     final path = Path()
       ..moveTo(stroke.points[0].x * size.width, stroke.points[0].y * size.height);
     for (int i = 1; i < stroke.points.length - 1; i++) {
@@ -97,6 +91,32 @@ class _DrawPainter extends CustomPainter {
         (p1.y + p2.y) / 2 * size.height,
       );
     }
+
+    // Glow/neon: draw a blurred wide pass underneath first.
+    if (!stroke.isEraser &&
+        (stroke.brush == BrushStyle.neon || stroke.brush == BrushStyle.glow)) {
+      final glowW = stroke.width * (stroke.brush == BrushStyle.glow ? 4.0 : 2.6);
+      final glow = Paint()
+        ..color = stroke.color.withOpacity(0.5)
+        ..strokeWidth = glowW
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowW / 2);
+      canvas.drawPath(path, glow);
+    }
+
+    // Core stroke. Neon core is whiter/brighter; glow keeps the colour.
+    final coreColor = stroke.brush == BrushStyle.neon
+        ? Color.lerp(stroke.color, Colors.white, 0.6)!
+        : stroke.color;
+    final paint = Paint()
+      ..color = stroke.isEraser ? Colors.transparent : coreColor
+      ..strokeWidth = stroke.width
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke
+      ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
     canvas.drawPath(path, paint);
   }
 
@@ -212,6 +232,42 @@ class DrawToolPanel extends ConsumerWidget {
                   onTap: () => ref.read(drawStrokesProvider.notifier).state = [],
                   child: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
                 ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Brush style selector (Phase 8.4)
+          Row(
+            children: [
+              const SizedBox(width: 70,
+                  child: Text('Style', style: TextStyle(fontSize: 12, color: Colors.white60))),
+              ...[
+                (BrushStyle.normal, 'Normal'),
+                (BrushStyle.neon, 'Neon'),
+                (BrushStyle.glow, 'Glow'),
+              ].map((e) {
+                final sel = ref.watch(brushStyleProvider) == e.$1;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      ref.read(brushStyleProvider.notifier).state = e.$1;
+                      ref.read(isEraserProvider.notifier).state = false;
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: sel ? AppTheme.toolbarSelected : Colors.white.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(e.$2,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: sel ? Colors.white : Colors.white54)),
+                    ),
+                  ),
+                );
+              }),
             ],
           ),
           const SizedBox(height: 10),

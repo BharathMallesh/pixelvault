@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -72,14 +73,6 @@ class OverlayCompositor {
   static void _paintStroke(
       Canvas canvas, DrawStroke stroke, double w, double h, double scale) {
     if (stroke.points.length < 2) return;
-    final paint = Paint()
-      ..color = stroke.isEraser ? Colors.transparent : stroke.color
-      ..strokeWidth = stroke.width * scale
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
-
     final path = Path()
       ..moveTo(stroke.points[0].x * w, stroke.points[0].y * h);
     for (int i = 1; i < stroke.points.length - 1; i++) {
@@ -90,6 +83,34 @@ class OverlayCompositor {
         (p1.x + p2.x) / 2 * w, (p1.y + p2.y) / 2 * h,
       );
     }
+
+    // Neon/glow: blurred wide pass underneath (matches the live painter).
+    if (!stroke.isEraser &&
+        (stroke.brush == BrushStyle.neon || stroke.brush == BrushStyle.glow)) {
+      final glowW =
+          stroke.width * scale * (stroke.brush == BrushStyle.glow ? 4.0 : 2.6);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = stroke.color.withValues(alpha: 0.5)
+          ..strokeWidth = glowW
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowW / 2),
+      );
+    }
+
+    final coreColor = stroke.brush == BrushStyle.neon
+        ? Color.lerp(stroke.color, Colors.white, 0.6)!
+        : stroke.color;
+    final paint = Paint()
+      ..color = stroke.isEraser ? Colors.transparent : coreColor
+      ..strokeWidth = stroke.width * scale
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke
+      ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
     canvas.drawPath(path, paint);
   }
 
@@ -112,11 +133,28 @@ class OverlayCompositor {
       Canvas canvas, TextOverlay t, double w, double h, double scale) {
     final isBold = t.style == TextStyle2.bold || t.style == TextStyle2.boldItalic;
     final isItalic = t.style == TextStyle2.italic || t.style == TextStyle2.boldItalic;
+    final shadows = t.hasShadow
+        ? [
+            Shadow(
+              color: Colors.black54,
+              offset: Offset(2 * scale, 2 * scale),
+              blurRadius: 3 * scale,
+            ),
+          ]
+        : const <Shadow>[];
+    final foreground = t.hasOutline
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = math.max(1, t.fontSize * scale * 0.06)
+          ..color = t.outlineColor)
+        : null;
     final tp = TextPainter(
       text: TextSpan(
         text: t.text,
         style: TextStyle(
-          color: t.color,
+          color: foreground == null ? t.color : null,
+          foreground: foreground,
+          shadows: shadows,
           fontSize: t.fontSize * scale,
           fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
           fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
@@ -144,6 +182,27 @@ class OverlayCompositor {
       );
     }
     tp.paint(canvas, topLeft);
+    // Outline mode renders a stroke; draw the fill on top so text isn't hollow.
+    if (foreground != null) {
+      final fill = TextPainter(
+        text: TextSpan(
+          text: t.text,
+          style: TextStyle(
+            color: t.color,
+            fontSize: t.fontSize * scale,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
+          ),
+        ),
+        textAlign: t.alignment == TextAlignment2.left
+            ? TextAlign.left
+            : t.alignment == TextAlignment2.right
+                ? TextAlign.right
+                : TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: w);
+      fill.paint(canvas, topLeft);
+    }
     canvas.restore();
   }
 }
