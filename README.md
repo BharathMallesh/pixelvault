@@ -218,6 +218,18 @@ PixelVault is **offline by default**. AI is added without giving that up:
 > Stickers use system emoji and all effects are generated in code — nothing
 > copyrighted is bundled, keeping the app lightweight and original.
 
+## ✅ Phase 9 — Portrait / beauty retouch
+
+- [x] **On-device face detection** — `FaceDetector` finds the face region + a skin mask, fully offline. Today it's a model-free skin-tone/region detector; a TFLite landmark model is a clean drop-in at `FaceDetector._seamForTfliteModel` for precise landmarks, with no change to the beauty ops.
+- [x] **Skin smooth** — edge-preserving blur restricted to skin pixels (preserves eyes/lips by smoothing less at high-contrast edges).
+- [x] **Teeth whiten** — brighten + desaturate bright low-saturation pixels in the mouth band.
+- [x] **Eye brighten** — luminance lift weighted toward brighter (sclera/highlight) pixels in the eye band.
+- [x] Beauty tab in the editor: detect → smooth / teeth / eyes sliders → apply & save, all on a background isolate.
+
+> The classical detector is a heuristic (no landmarks) — good enough to target
+> retouch but less precise than a trained model. The model upgrade is isolated
+> to one seam.
+
 ---
 
 ## ⚠️ Known limitations (honest)
@@ -229,5 +241,6 @@ These are genuine gaps vs. apps like Snapseed / Lightroom:
 - **Healing is patch-clone**, not content-aware fill — visible on complex textures.
 - **Background blur** comes in two forms: a manual/centre-weighted brush (Blur tool) and an automatic **AI Cutout** (subject detection). The Cutout uses a **classical, model-free** segmentation — good on clear subject/background separation, weaker on fine hair/edges than a trained TFLite matting model (the drop-in seam for which exists).
 - **Selective edits are brush+feather masks** — no luminosity masks or gradient/radial filters.
+- **Beauty retouch uses a model-free face detector** — finds the skin region by colour, not facial landmarks. Skin smooth / teeth / eye work, but targeting is approximate vs. a landmark model (drop-in seam exists). No reshape/liquify or makeup yet.
 - **No cloud AI yet** — the online-AI opt-in toggle and `AiService.needsNetwork` seam are in place, but no server-backed feature (upscale, generative fill) is wired. Adding one requires a backend + the `INTERNET` permission.
 - True **GPU acceleration** and a **trained on-device ML matting model** would require heavy native/TFLite dependencies; deliberately deferred to keep the app lightweight (the classical cutout covers the common case offline today).

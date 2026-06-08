@@ -23,6 +23,7 @@ import '../widgets/selective_tool.dart';
 import '../widgets/cutout_tool.dart';
 import '../widgets/cutout_refine_overlay.dart';
 import '../widgets/effects_tool.dart';
+import '../widgets/beauty_tool.dart';
 import '../providers/matte_provider.dart';
 import '../widgets/text_tool.dart';
 import '../widgets/draw_tool.dart';
@@ -261,6 +262,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       case EditorTool.blur:        return 'Background Blur';
       case EditorTool.selective:   return 'Selective Edit';
       case EditorTool.cutout:      return 'AI Cutout';
+      case EditorTool.beauty:      return 'Beauty Retouch';
       case EditorTool.effects:     return 'Frames & Effects';
       case EditorTool.text:        return 'Add Text';
       case EditorTool.draw:        return 'Draw';
@@ -477,6 +479,7 @@ class _ToolTabBar extends StatelessWidget {
       (EditorTool.blur,        Icons.lens_blur_outlined,     'Blur'),
       (EditorTool.selective,   Icons.gesture_outlined,       'Select'),
       (EditorTool.cutout,      Icons.auto_awesome_outlined,  'Cutout'),
+      (EditorTool.beauty,      Icons.face_retouching_natural,'Beauty'),
       (EditorTool.effects,     Icons.filter_frames_outlined, 'Frames'),
       (EditorTool.text,        Icons.text_fields_outlined,   'Text'),
       (EditorTool.draw,        Icons.brush_outlined,         'Draw'),
@@ -540,6 +543,7 @@ class _ToolPanel extends ConsumerWidget {
       case EditorTool.blur:        return const BlurToolPanel();
       case EditorTool.selective:   return const SelectiveToolPanel();
       case EditorTool.cutout:      return CutoutToolPanel(assetId: assetId);
+      case EditorTool.beauty:      return BeautyToolPanel(assetId: assetId);
       case EditorTool.effects:     return const EffectsToolPanel();
       case EditorTool.text:        return const TextToolPanel();
       case EditorTool.draw:        return const DrawToolPanel();
