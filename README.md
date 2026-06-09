@@ -240,6 +240,22 @@ PixelVault is **offline by default**. AI is added without giving that up:
 
 ---
 
+## ✅ On-device ML cutout (real AI, optional)
+
+The Cutout tool now has a genuine on-device ML path:
+
+- [x] **TFLite integration** — `tflite_flutter` + `TfliteSegmenter` load a model from `assets/models/cutout.tflite`, run segmentation on the main isolate, and feed the alpha matte into the existing cutout pipeline.
+- [x] **Graceful fallback** — if no model is bundled (or inference fails), it automatically uses the classical, model-free algorithm. The app always works offline, with or without a model.
+
+**To activate real ML cutout:** drop a TFLite segmentation model (e.g. U²-Net / MODNet, permissively licensed) at `assets/models/cutout.tflite`. Expected I/O is documented in `assets/models/README.md` (1×320×320×3 float input, 1×320×320×1 alpha output; adjust `TfliteSegmenter` if your export differs). No code changes needed — it's detected and used on next launch.
+
+> This is the honest state: the **integration is complete and builds**, but no
+> model binary is bundled in the repo, so the classical path runs until you add
+> one. Everything else (Beauty face detection, etc.) still uses classical CV
+> with the same TFLite drop-in seam available.
+
+---
+
 ## ⚠️ Known limitations (honest)
 
 These are genuine gaps vs. apps like Snapseed / Lightroom:

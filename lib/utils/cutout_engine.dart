@@ -3,9 +3,12 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 import 'ai_service.dart';
+import 'tflite_segmenter.dart';
 
-/// On-device subject/background segmentation. Produces a soft alpha matte
-/// without any network call or bundled ML model.
+/// On-device subject/background segmentation. Produces a soft alpha matte with
+/// no network call. Uses a real TFLite model when one is bundled
+/// (assets/models/cutout.tflite), and otherwise falls back to the classical,
+/// model-free algorithm below — so it always works offline.
 ///
 /// HOW IT WORKS (classical, model-free):
 ///   1. Downscale for speed.
@@ -29,17 +32,40 @@ class CutoutEngine {
   static Future<CutoutResult> segment(
     Uint8List imageBytes, {
     List<double>? hintRect,
-  }) {
+  }) async {
+    // 1. Try real on-device ML first. TFLite needs platform channels, so it
+    //    must run on the main isolate (not inside compute()). If no model is
+    //    bundled or inference fails, this returns null and we fall back.
+    final ml = await _tryMlSegment(imageBytes);
+    if (ml != null) return ml;
+
+    // 2. Classical fallback on a background isolate (model-free, always works).
     return compute(
       _segmentEntry,
       _SegmentJob(bytes: imageBytes, hintRect: hintRect),
     );
   }
 
-  // ── Isolate seam ────────────────────────────────────────────────────
-  // If/when a TFLite model is bundled, swap `_classicalMatte` for the model
-  // inference here. Everything above (AiService, the Cutout tool, save
-  // pipeline) is unaffected because the CutoutResult contract is unchanged.
+  /// Whether genuine ML segmentation is active (a model is bundled & loaded).
+  static Future<bool> get mlAvailable => TfliteSegmenter.ensureLoaded();
+
+  static Future<CutoutResult?> _tryMlSegment(Uint8List bytes) async {
+    try {
+      var image = img.decodeImage(bytes);
+      if (image == null) return null;
+      if (image.numChannels < 3 || image.hasPalette) {
+        image = image.convert(numChannels: 3);
+      }
+      final alpha = await TfliteSegmenter.segment(image);
+      if (alpha == null) return null; // no model -> caller falls back
+      return CutoutResult(
+          alpha: alpha, width: image.width, height: image.height);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Classical seam (model-free fallback) ────────────────────────────
   static Uint8List _seamForTfliteModel(img.Image small, _Seeds seeds) =>
       _classicalMatte(small, seeds);
 
