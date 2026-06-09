@@ -154,6 +154,25 @@ class GalleryNotifier extends StateNotifier<GalleryState> {
     final all = state.displayedPhotos.map((p) => p.id).toSet();
     state = state.copyWith(selectedIds: all);
   }
+
+  /// Delete [ids] from the device gallery. On Android this triggers the system
+  /// "Allow this app to delete?" confirmation dialog; only the photos the user
+  /// confirms are actually removed. Returns the ids that were deleted. Removes
+  /// them from local state and clears the selection.
+  ///
+  /// This deletes ORIGINALS as well as edited copies — it is irreversible.
+  /// Callers must confirm with the user before invoking.
+  Future<List<String>> deletePhotos(List<String> ids) async {
+    if (ids.isEmpty) return const [];
+    final deleted = await PhotoManager.editor.deleteWithIds(ids);
+    if (deleted.isNotEmpty) {
+      final remaining =
+          state.photos.where((p) => !deleted.contains(p.id)).toList();
+      final sel = Set<String>.from(state.selectedIds)..removeAll(deleted);
+      state = state.copyWith(photos: remaining, selectedIds: sel);
+    }
+    return deleted;
+  }
 }
 
 final galleryProvider =

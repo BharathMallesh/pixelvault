@@ -84,6 +84,11 @@ class _GalleryPage extends ConsumerWidget {
             : const Text('PixelVault'),
         actions: [
           if (state.isBatchMode) ...[
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete selected',
+              onPressed: () => _confirmDelete(context, ref, state.selectedIds.toList()),
+            ),
             TextButton(
               onPressed: notifier.selectAll,
               child: const Text('All'),
@@ -121,6 +126,51 @@ class _GalleryPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, WidgetRef ref, List<String> ids) async {
+    if (ids.isEmpty) return;
+    final n = ids.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Delete $n photo${n == 1 ? '' : 's'}?'),
+        content: const Text(
+          'This permanently removes the selected photos from your device — '
+          'including originals. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final deleted = await ref.read(galleryProvider.notifier).deletePhotos(ids);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(deleted.isEmpty
+            ? 'No photos deleted'
+            : 'Deleted ${deleted.length} photo${deleted.length == 1 ? '' : 's'}'),
+        backgroundColor: deleted.isEmpty ? Colors.grey : Colors.green,
+        duration: const Duration(seconds: 2),
+      ));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Could not delete: $e'),
+        backgroundColor: Colors.redAccent,
+      ));
+    }
   }
 }
 

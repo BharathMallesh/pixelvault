@@ -42,9 +42,23 @@ final _layouts = [
     ]),
 ];
 
+// Per-cell pan/zoom transform so the user can adjust what shows in a cell.
+class CellTransform {
+  final double zoom, panX, panY; // zoom>=1, pan in -1..1
+  const CellTransform({this.zoom = 1.0, this.panX = 0.0, this.panY = 0.0});
+  CellTransform copyWith({double? zoom, double? panX, double? panY}) =>
+      CellTransform(
+        zoom: zoom ?? this.zoom,
+        panX: panX ?? this.panX,
+        panY: panY ?? this.panY,
+      );
+}
+
 // Providers
 final selectedLayoutProvider = StateProvider<CollageLayout>((ref) => _layouts[0]);
 final collagePhotosProvider = StateProvider<List<String?>>((ref) => List.filled(2, null));
+final collageTransformsProvider =
+    StateProvider<List<CellTransform>>((ref) => List.filled(2, const CellTransform()));
 final collageBorderWidthProvider = StateProvider<double>((ref) => 3.0);
 final collageBorderColorProvider = StateProvider<Color>((ref) => Colors.white);
 
@@ -99,9 +113,10 @@ class CollageScreen extends ConsumerWidget {
                               top: cell.t * h + borderW / 2,
                               width: (cell.r - cell.l) * w - borderW,
                               height: (cell.b - cell.t) * h - borderW,
-                              child: GestureDetector(
-                                onTap: () => _pickPhoto(context, ref, i),
-                                child: _CellWidget(assetId: assetId, index: i),
+                              child: _CellWidget(
+                                assetId: assetId,
+                                index: i,
+                                onPick: () => _pickPhoto(context, ref, i),
                               ),
                             );
                           }),
@@ -133,6 +148,8 @@ class CollageScreen extends ConsumerWidget {
                           ref.read(selectedLayoutProvider.notifier).state = l;
                           ref.read(collagePhotosProvider.notifier).state =
                               List.filled(l.count, null);
+                          ref.read(collageTransformsProvider.notifier).state =
+                              List.filled(l.count, const CellTransform());
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
@@ -234,12 +251,18 @@ class CollageScreen extends ConsumerWidget {
       while (list.length <= index) list.add(null);
       list[index] = result;
       ref.read(collagePhotosProvider.notifier).state = list;
+      // Reset this cell's pan/zoom for the new photo.
+      final tr = List<CellTransform>.from(ref.read(collageTransformsProvider));
+      while (tr.length <= index) tr.add(const CellTransform());
+      tr[index] = const CellTransform();
+      ref.read(collageTransformsProvider.notifier).state = tr;
     }
   }
 
   Future<void> _export(BuildContext context, WidgetRef ref) async {
     final layout = ref.read(selectedLayoutProvider);
     final photoIds = ref.read(collagePhotosProvider);
+    final transforms = ref.read(collageTransformsProvider);
     final borderW = ref.read(collageBorderWidthProvider);
     final borderColor = ref.read(collageBorderColorProvider);
     final appSettings = ref.read(settingsProvider);
@@ -272,9 +295,11 @@ class CollageScreen extends ConsumerWidget {
           final asset = await AssetEntity.fromId(id);
           bytes = await asset?.originBytes;
         }
+        final tr = i < transforms.length ? transforms[i] : const CellTransform();
         cells.add(CollageCell(
           left: cell.l, top: cell.t, right: cell.r, bottom: cell.b,
           bytes: bytes,
+          zoom: tr.zoom, panX: tr.panX, panY: tr.panY,
         ));
       }
 
@@ -344,39 +369,159 @@ Uint8List _composeInIsolate(_CollageJob job) => ImageProcessor.composeCollage(
       jpegQuality: job.jpegQuality,
     );
 
-class _CellWidget extends StatelessWidget {
+class _CellWidget extends ConsumerStatefulWidget {
   final String? assetId;
   final int index;
-  const _CellWidget({required this.assetId, required this.index});
+  final VoidCallback onPick;
+  const _CellWidget(
+      {required this.assetId, required this.index, required this.onPick});
+
+  @override
+  ConsumerState<_CellWidget> createState() => _CellWidgetState();
+}
+
+class _CellWidgetState extends ConsumerState<_CellWidget> {
+  double _zoomStart = 1.0;
+
+  Widget _cellBtn(IconData icon, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Icon(icon, size: 14, color: Colors.white70),
+        ),
+      );
+
+  void _nudgeZoom(double delta) {
+    final cur = _t();
+    final z = (cur.zoom + delta).clamp(1.0, 4.0);
+    // When returning to 1.0 there's no slack, so recenter the pan.
+    if (z <= 1.0) {
+      _set(cur.copyWith(zoom: 1.0, panX: 0.0, panY: 0.0));
+    } else {
+      _set(cur.copyWith(zoom: z));
+    }
+  }
+
+  CellTransform _t() {
+    final list = ref.read(collageTransformsProvider);
+    return widget.index < list.length
+        ? list[widget.index]
+        : const CellTransform();
+  }
+
+  void _set(CellTransform t) {
+    final list = List<CellTransform>.from(ref.read(collageTransformsProvider));
+    while (list.length <= widget.index) list.add(const CellTransform());
+    list[widget.index] = t;
+    ref.read(collageTransformsProvider.notifier).state = list;
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (assetId == null) {
-      return Container(
-        color: Colors.grey.shade800,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.add_photo_alternate_outlined,
-                color: Colors.white38, size: 28),
-            const SizedBox(height: 4),
-            Text('Tap to add', style: TextStyle(color: Colors.white38, fontSize: 11)),
-          ],
+    if (widget.assetId == null) {
+      return GestureDetector(
+        onTap: widget.onPick,
+        child: Container(
+          color: Colors.grey.shade800,
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.add_photo_alternate_outlined,
+                  color: Colors.white38, size: 28),
+              SizedBox(height: 4),
+              Text('Tap to add',
+                  style: TextStyle(color: Colors.white38, fontSize: 11)),
+            ],
+          ),
         ),
       );
     }
-    return FutureBuilder<AssetEntity?>(
-      future: AssetEntity.fromId(assetId!),
-      builder: (ctx, snap) {
-        if (!snap.hasData) return Container(color: Colors.grey.shade900);
-        return AssetEntityImage(
-          snap.data!,
-          isOriginal: false,
-          thumbnailSize: const ThumbnailSize.square(400),
-          fit: BoxFit.cover,
-        );
-      },
-    );
+
+    final t = ref.watch(collageTransformsProvider)[
+        widget.index.clamp(0, ref.watch(collageTransformsProvider).length - 1)];
+
+    return LayoutBuilder(builder: (ctx, c) {
+      final cw = c.maxWidth, ch = c.maxHeight;
+      return ClipRect(
+        child: GestureDetector(
+          // Drag to pan; pinch to zoom. Zoom is tracked relative to the scale
+          // at gesture start, captured fresh from current state each time.
+          onScaleStart: (_) => _zoomStart = _t().zoom,
+          onScaleUpdate: (d) {
+            final cur = _t();
+            // Change in scale since gesture start: d.scale>1 zooms in,
+            // d.scale<1 zooms out.
+            final newZoom = (_zoomStart * d.scale).clamp(1.0, 4.0);
+            // Pan from the focal-point drag.
+            var panX = (cur.panX - d.focalPointDelta.dx / (cw * 0.5))
+                .clamp(-1.0, 1.0);
+            var panY = (cur.panY - d.focalPointDelta.dy / (ch * 0.5))
+                .clamp(-1.0, 1.0);
+            // No slack at zoom 1 -> keep centered.
+            if (newZoom <= 1.0) {
+              panX = 0.0;
+              panY = 0.0;
+            }
+            _set(cur.copyWith(zoom: newZoom, panX: panX, panY: panY));
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FutureBuilder<AssetEntity?>(
+                future: AssetEntity.fromId(widget.assetId!),
+                builder: (ctx, snap) {
+                  if (!snap.hasData) {
+                    return Container(color: Colors.grey.shade900);
+                  }
+                  // Base = CONTAIN (the whole photo fits, so nothing is cropped
+                  // at zoom 1). Zoom scales up from there; pan slides within the
+                  // overflow the zoom creates. panX/panY in -1..1.
+                  final z = t.zoom;
+                  final tx = -t.panX * (z - 1) / 2 * cw;
+                  final ty = -t.panY * (z - 1) / 2 * ch;
+                  return ClipRect(
+                    child: Transform(
+                      transform: Matrix4.identity()
+                        ..translate(tx, ty)
+                        ..scale(z, z),
+                      alignment: Alignment.center,
+                      child: SizedBox(
+                        width: cw,
+                        height: ch,
+                        child: AssetEntityImage(
+                          snap.data!,
+                          isOriginal: false,
+                          thumbnailSize: const ThumbnailSize.square(400),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // Per-cell controls: zoom out / zoom in / change photo.
+              Positioned(
+                right: 2,
+                top: 2,
+                child: Row(
+                  children: [
+                    _cellBtn(Icons.zoom_out, () => _nudgeZoom(-0.25)),
+                    const SizedBox(width: 3),
+                    _cellBtn(Icons.zoom_in, () => _nudgeZoom(0.25)),
+                    const SizedBox(width: 3),
+                    _cellBtn(Icons.swap_horiz, widget.onPick),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
   }
 }
 

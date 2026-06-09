@@ -35,12 +35,19 @@ Future<Uint8List> _processJobEntry(_ProcessJob job) => ImageProcessor.processByt
 class CollageCell {
   final double left, top, right, bottom;
   final Uint8List? bytes;
+  // Per-cell pan/zoom so the user can choose what shows inside the cell.
+  // [zoom] >= 1 adds zoom on top of the base "cover" fit. [panX]/[panY] are
+  // -1..1 and pan within the cropped slack (0 = centered, ±1 = edge).
+  final double zoom, panX, panY;
   const CollageCell({
     required this.left,
     required this.top,
     required this.right,
     required this.bottom,
     required this.bytes,
+    this.zoom = 1.0,
+    this.panX = 0.0,
+    this.panY = 0.0,
   });
 }
 
@@ -84,15 +91,46 @@ class ImageProcessor {
       final h = ((cell.bottom - cell.top) * canvasSize).round() - 2 * half;
       if (w <= 0 || h <= 0) continue;
 
-      // "Cover" fit: scale so the cell is filled, then center-crop.
-      final scale = math.max(w / src.width, h / src.height);
-      final rw = (src.width * scale).ceil();
-      final rh = (src.height * scale).ceil();
+      // Base = CONTAIN (whole photo fits the cell), then apply the user's zoom
+      // and pan. This matches the on-screen preview exactly. At zoom 1 the
+      // whole photo shows, centered, with the border color filling any gap.
+      final zoom = cell.zoom < 1.0 ? 1.0 : cell.zoom;
+      final containScale = math.min(w / src.width, h / src.height);
+      final scale = containScale * zoom;
+      final rw = (src.width * scale).round().clamp(1, 1 << 16);
+      final rh = (src.height * scale).round().clamp(1, 1 << 16);
       final resized = img.copyResize(src, width: rw, height: rh);
-      final cropX = ((rw - w) / 2).round().clamp(0, rw - w);
-      final cropY = ((rh - h) / 2).round().clamp(0, rh - h);
-      final tile =
-          img.copyCrop(resized, x: cropX, y: cropY, width: w, height: h);
+
+      // Make a cell-sized tile filled with the border color.
+      final tile = img.Image(width: w, height: h, numChannels: 4);
+      if (transparentBorder && asPng) {
+        img.fill(tile, color: img.ColorRgba8(0, 0, 0, 0));
+      } else {
+        img.fill(tile, color: img.ColorRgba8(borderR, borderG, borderB, 255));
+      }
+
+      // Place the resized photo into the tile. dstX/dstY are where the photo's
+      // top-left goes; can be negative (photo overflows, zoomed in) or positive
+      // (photo smaller, letterboxed). Pan shifts within the overflow.
+      final slackX = rw - w;
+      final slackY = rh - h;
+      final dstX = ((w - rw) / 2).round() +
+          (-cell.panX.clamp(-1.0, 1.0) * (slackX > 0 ? slackX : 0) / 2).round();
+      final dstY = ((h - rh) / 2).round() +
+          (-cell.panY.clamp(-1.0, 1.0) * (slackY > 0 ? slackY : 0) / 2).round();
+
+      // compositeImage clips negative offsets, so copy pixel-by-pixel over the
+      // visible window instead (robust for overflow + letterbox alike).
+      for (int ty = 0; ty < h; ty++) {
+        final sy = ty - dstY;
+        if (sy < 0 || sy >= rh) continue;
+        for (int tx = 0; tx < w; tx++) {
+          final sx = tx - dstX;
+          if (sx < 0 || sx >= rw) continue;
+          final sp = resized.getPixel(sx, sy);
+          tile.setPixelRgba(tx, ty, sp.r, sp.g, sp.b, 255);
+        }
+      }
 
       img.compositeImage(canvas, tile, dstX: x, dstY: y);
     }
