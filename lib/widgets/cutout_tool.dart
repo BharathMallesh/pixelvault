@@ -48,8 +48,11 @@ class _CutoutToolPanelState extends ConsumerState<CutoutToolPanel> {
       if (bytes == null) throw Exception('Could not read photo data');
       final matte = await const AiService().removeBackground(bytes);
       ref.read(matteEditProvider.notifier).setBase(matte);
+      final usingMl = await CutoutEngine.mlAvailable;
       if (!mounted) return;
-      setState(() => _status = 'Subject detected — refine or pick an output');
+      setState(() => _status = usingMl
+          ? '✓ Detected with on-device ML model — refine or pick an output'
+          : 'Detected (classical) — refine or pick an output');
     } catch (e) {
       if (!mounted) return;
       setState(() => _status = 'Cutout failed: $e');

@@ -11,12 +11,13 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 /// caller (cutout_engine) falls back to the classical algorithm. Drop a model
 /// at `assets/models/cutout.tflite` to activate it (see that folder's README).
 ///
-/// Assumed model I/O (tweak the constants if your export differs):
-///   input  : 1 x [_size] x [_size] x 3, float32 normalized to [0,1]
-///   output : 1 x [_size] x [_size] x 1 alpha matte, float32 in [0,1]
+/// Configured for MediaPipe Selfie Segmentation (Apache-2.0):
+///   input  : 1 x 256 x 256 x 3, float32 normalized to [0,1]
+///   output : 1 x 256 x 256 x 1 person-probability mask, float32 in [0,1]
+/// For a different model, change [_size]/normalization/output handling.
 class TfliteSegmenter {
   static const String _modelAsset = 'assets/models/cutout.tflite';
-  static const int _size = 320; // model input/output side
+  static const int _size = 256; // MediaPipe selfie segmenter input/output side
 
   static Interpreter? _interpreter;
   static bool _triedLoad = false;
